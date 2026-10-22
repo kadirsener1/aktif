@@ -82,30 +82,27 @@ def basic_auth_required(handler):
 async def check_url(session, url):
     start_time = time.time()
     try:
+        # 2 saniye timeout ile hızden ödün vermiyoruz
         async with session.get(url, timeout=2.0) as response:
             elapsed_time = time.time() - start_time
             if response.status == 200:
                 content = await response.text()
                 if "#EXTM3U" in content:
-                    max_res_score = 0
+                    max_height = 0
                     resolutions = re.findall(r'RESOLUTION=(\d+)x(\d+)', content)
                     if resolutions:
                         for w, h in resolutions:
-                            score = int(w) * int(h)
-                            if score > max_res_score:
-                                max_res_score = score
+                            h_val = int(h)
+                            if h_val > max_height:
+                                max_height = h_val
+                    else:
+                        max_height = 720  # Çözünürlük bilgisi yoksa orta kalite (720p) kabul edilir
                     
-                    # ÇÖZÜNÜRLÜK KATSAYISI (Hızın önüne geçmeyecek şekilde dengelendi)
-                    res_factor = 1.0
-                    if max_res_score >= 2073600:  # 1080p ve üzeri
-                        res_factor = 1.3
-                    elif max_res_score >= 921600: # 720p
-                        res_factor = 1.1
-                    
-                    # YENİ ADİL STABİLİTE FORMÜLÜ: 
-                    # Yanıt süresi (elapsed_time) ne kadar kısasa puan o kadar yüksek olur.
-                    # Hız artık birincil faktördür; çözünürlük sadece küçük bir bonus sağlar.
-                    stability_score = res_factor / (elapsed_time + 0.05)
+                    # ADİL KALİTE VE STABİLİTE FORMÜLÜ:
+                    # Puan = Çözünürlük Yüksekliği (1080, 720, 480) / (Yanıt Süresi + Sabit Gecikme)
+                    # Yorum: 1080p bir yayın yavaş yanıt verirse (elapsed_time yüksek çıkarsa), 
+                    # skoru hızla düşer ve akıcı çalışan 720p yayın onun önüne geçer.
+                    stability_score = max_height / (elapsed_time + 0.2)
                     
                     return (url, stability_score)
     except Exception:
@@ -133,7 +130,7 @@ async def get_working_stream(channel_name):
         if not working_streams:
             return None
         
-        # En yüksek stabilite/hız skoruna göre sırala
+        # En yüksek stabilite/hız skoruna göre sırala (En yüksek puan kazanan ilk sıraya gelir)
         working_streams.sort(key=lambda x: x[1], reverse=True)
         best_url = working_streams[0][0]
         
@@ -148,7 +145,7 @@ async def handle_stream(request):
     channels = load_channels()
     
     if channel_name not in channels:
-        return web.Response(text="Böyle kanal tanımlı değil.", status=404)
+        return web.Response(text="Böyle bir kanal tanımlı değil.", status=404)
         
     working_url = await get_working_stream(channel_name)
     if not working_url:
@@ -257,7 +254,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Hız ve stabilite öncelikli akıllı yönlendirme sistemi aktif.</p>
+            <p class="subtitle">Akıllı Hız & Kalite Dengesi Aktif (Stabil olmayan 1080p yerine hızlı 720p tercih edilir)</p>
             
             <div class="card">
                 <h3 id="form-title">Yeni Kanal Ekle</h3>
@@ -307,7 +304,7 @@ async def dashboard(request):
                             <td>{status_html}</td>
                             <td><a href="{play_link}" target="_blank">{play_link}</a><br><small style="color: #94a3b8; word-break: break-all;">{active_url}</small></td>
                             <td>
-                                <button class="btn-warning" onclick="editChannel('{name}')">Düzenle, Değiştir</button>
+                                <button class="btn-warning" onclick="editChannel('{name}')">Düzenle</button>
                                 <a href="{delete_link}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
                             </td>
                         </tr>
