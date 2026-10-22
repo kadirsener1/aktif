@@ -133,6 +133,10 @@ async def get_working_stream(channel_name):
         }
         return best_url
 
+# --- RENDER UYUTmama (KEEP-ALIVE) PING ROTOSU ---
+async def ping(request):
+    return web.Response(text="OK", status=200)
+
 async def handle_stream(request):
     channel_name = request.match_info.get('channel_name')
     channels = load_channels()
@@ -185,7 +189,6 @@ async def admin_delete(request):
 
 @basic_auth_required
 async def admin_clear_cache(request):
-    """Tüm önbelleği (cache) anında temizler."""
     STREAM_CACHE.clear()
     raise web.HTTPFound('/')
 
@@ -255,7 +258,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Cache süresi 1 dakika. İstediğiniz an aşağıdaki butondan önbelleği sıfırlayabilirsiniz.</p>
+            <p class="subtitle">Cache süresi 1 dakika. İstediğiniz an önbelleği sıfırlayabilirsiniz.</p>
             
             <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek (cache) temizlensin mi?')">🧹 Önbelleği (Cache) Anında Temizle</a>
 
@@ -329,6 +332,7 @@ app.router.add_get('/', dashboard)
 app.router.add_post('/admin/save', admin_save)
 app.router.add_get('/admin/delete/{channel_name}', admin_delete)
 app.router.add_get('/admin/clear-cache', admin_clear_cache)
+app.router.add_get('/ping', ping)  # <-- UYUTMAMA PİNG ROTASI BURAYA EKLENDİ
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
