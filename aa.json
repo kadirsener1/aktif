@@ -1,0 +1,14 @@
+{
+  "sportv": [
+    "https://ornek-kaynak-1.com/sportv/index.m3u8",
+    "https://ornek-kaynak-2.com/live/sportv.m3u8",
+    "https://ornek-kaynak-3.net/stream/sportv_backup.m3u8"
+  ],
+  "sinematv": [
+    "https://sinema-kaynak-1.com/live.m3u8",
+    "https://sinema-kaynak-2.net/stream.m3u8"
+  ],
+  "belgeseltv": [
+    "https://docu-source-1.com/playlist.m3u8"
+  ]
+}
