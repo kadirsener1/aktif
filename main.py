@@ -11,11 +11,10 @@ CONFIG_FILE = "channels.json"
 STREAM_CACHE = {}
 CACHE_DURATION = 600  # 10 dakika
 
-# GitHub ve Admin Giriş Bilgileri (Render Environment Variables'dan okunur)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
-ADMIN_USER = os.environ.get("ADMIN_USER", "admin")      # Varsayılan kullanıcı adı: admin
-ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")    # Varsayılan şifre: iptv123
+ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
 
 def load_channels():
     if os.path.exists(CONFIG_FILE):
@@ -56,7 +55,6 @@ def save_and_push_channels(channels):
         print(f"GitHub Sync Error: {e}")
 
 def check_auth(request):
-    """HTTP Basic Auth kontrolü yapar."""
     auth_header = request.headers.get('Authorization')
     if not auth_header:
         return False
@@ -71,7 +69,6 @@ def check_auth(request):
     return False
 
 def basic_auth_required(handler):
-    """Admin sayfaları için şifreli giriş decorator'ı."""
     async def wrapper(request):
         if not check_auth(request):
             return web.Response(
@@ -97,10 +94,19 @@ async def check_url(session, url):
                             score = int(w) * int(h)
                             if score > max_res_score:
                                 max_res_score = score
-                    else:
-                        max_res_score = 921600
                     
-                    stability_score = max_res_score / (1.0 + (elapsed_time * 2.0))
+                    # ÇÖZÜNÜRLÜK KATSAYISI (Hızın önüne geçmeyecek şekilde dengelendi)
+                    res_factor = 1.0
+                    if max_res_score >= 2073600:  # 1080p ve üzeri
+                        res_factor = 1.3
+                    elif max_res_score >= 921600: # 720p
+                        res_factor = 1.1
+                    
+                    # YENİ ADİL STABİLİTE FORMÜLÜ: 
+                    # Yanıt süresi (elapsed_time) ne kadar kısasa puan o kadar yüksek olur.
+                    # Hız artık birincil faktördür; çözünürlük sadece küçük bir bonus sağlar.
+                    stability_score = res_factor / (elapsed_time + 0.05)
+                    
                     return (url, stability_score)
     except Exception:
         pass
@@ -127,6 +133,7 @@ async def get_working_stream(channel_name):
         if not working_streams:
             return None
         
+        # En yüksek stabilite/hız skoruna göre sırala
         working_streams.sort(key=lambda x: x[1], reverse=True)
         best_url = working_streams[0][0]
         
@@ -137,12 +144,11 @@ async def get_working_stream(channel_name):
         return best_url
 
 async def handle_stream(request):
-    """Public rota: IPTV oynatıcınız bu adrese istek atar (şifre istemez)."""
     channel_name = request.match_info.get('channel_name')
     channels = load_channels()
     
     if channel_name not in channels:
-        return web.Response(text="Böyle kanalı tanımlı değil.", status=404)
+        return web.Response(text="Böyle kanal tanımlı değil.", status=404)
         
     working_url = await get_working_stream(channel_name)
     if not working_url:
@@ -152,7 +158,6 @@ async def handle_stream(request):
 
 @basic_auth_required
 async def admin_save(request):
-    """Kanal ekleme ve güncelleme (Düzenleme) işlemi."""
     data = await request.post()
     old_name = data.get('old_name', '').strip().lower()
     channel_name = data.get('channel_name', '').strip().lower()
@@ -162,7 +167,6 @@ async def admin_save(request):
         urls = [u.strip() for u in urls_raw.replace(',', '\n').split('\n') if u.strip()]
         channels = load_channels()
         
-        # Eğer kanal ismi değiştirildiyse eskisini sil
         if old_name and old_name != channel_name and old_name in channels:
             del channels[old_name]
             if old_name in STREAM_CACHE:
@@ -178,7 +182,6 @@ async def admin_save(request):
 
 @basic_auth_required
 async def admin_delete(request):
-    """Kanal silme işlemi."""
     channel_name = request.match_info.get('channel_name')
     channels = load_channels()
     
@@ -192,11 +195,8 @@ async def admin_delete(request):
 
 @basic_auth_required
 async def dashboard(request):
-    """Şifre korumalı Admin Paneli / Dashboard arayüzü."""
     channels = load_channels()
     current_time = time.time()
-    
-    # Kanalların linklerini JavaScript için JSON formatına çeviriyoruz
     channels_json_esc = json.dumps(channels, ensure_ascii=False)
     
     html = f"""
@@ -257,7 +257,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Şifre korumalı yönetim paneli. Değişiklikler doğrudan GitHub'a kaydedilir.</p>
+            <p class="subtitle">Hız ve stabilite öncelikli akıllı yönlendirme sistemi aktif.</p>
             
             <div class="card">
                 <h3 id="form-title">Yeni Kanal Ekle</h3>
@@ -282,7 +282,7 @@ async def dashboard(request):
                         <tr>
                             <th>Kanal Adı</th>
                             <th>Durum</th>
-                            <th>Oynatıcı Linki & Aktif Kaynak</th>
+                            <th>Oynatıcı Linki & Seçilen Stabil Kaynak</th>
                             <th>İşlem</th>
                         </tr>
                     </thead>
@@ -307,7 +307,7 @@ async def dashboard(request):
                             <td>{status_html}</td>
                             <td><a href="{play_link}" target="_blank">{play_link}</a><br><small style="color: #94a3b8; word-break: break-all;">{active_url}</small></td>
                             <td>
-                                <button class="btn-warning" onclick="editChannel('{name}')">Düzenle</button>
+                                <button class="btn-warning" onclick="editChannel('{name}')">Düzenle, Değiştir</button>
                                 <a href="{delete_link}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
                             </td>
                         </tr>
