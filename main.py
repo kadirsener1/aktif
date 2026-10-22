@@ -9,7 +9,7 @@ import base64
 
 CONFIG_FILE = "channels.json"
 STREAM_CACHE = {}
-CACHE_DURATION = 60  # Cache süresi 1 dakika
+CACHE_DURATION = 60  # 1 dakika cache
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
@@ -95,9 +95,14 @@ async def check_url(session, url):
                             if h_val > max_height:
                                 max_height = h_val
                     else:
-                        max_height = 720
+                        max_height = 720  # Çözünürlük bilgisi yoksa orta kalite kabul edilir
                     
-                    stability_score = max_height / (elapsed_time + 0.2)
+                    # TÜM İZLEYİCİLER İÇİN GÜNCELLENMİŞ STABİLİTE FORMÜLÜ:
+                    # Gecikme süresi (elapsed_time) cezası artırıldı (x3.0). 
+                    # Böylece ağır veya yavaş yanıt veren 1080p kaynaklar elenir, 
+                    # zayıf internetli izleyicileri de koruyan en hızlı ve akıcı kaynak öne geçer.
+                    stability_score = max_height / (elapsed_time * 3.0 + 0.1)
+                    
                     return (url, stability_score)
     except Exception:
         pass
@@ -133,7 +138,6 @@ async def get_working_stream(channel_name):
         }
         return best_url
 
-# --- RENDER UYUTmama (KEEP-ALIVE) PING ROTOSU ---
 async def ping(request):
     return web.Response(text="OK", status=200)
 
@@ -258,7 +262,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Cache süresi 1 dakika. İstediğiniz an önbelleği sıfırlayabilirsiniz.</p>
+            <p class="subtitle">Tüm izleyicilerin internet kalitesi gözetilerek optimize edilmiş akıllı denge algoritması aktif.</p>
             
             <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek (cache) temizlensin mi?')">🧹 Önbelleği (Cache) Anında Temizle</a>
 
@@ -332,7 +336,7 @@ app.router.add_get('/', dashboard)
 app.router.add_post('/admin/save', admin_save)
 app.router.add_get('/admin/delete/{channel_name}', admin_delete)
 app.router.add_get('/admin/clear-cache', admin_clear_cache)
-app.router.add_get('/ping', ping)  # <-- UYUTMAMA PİNG ROTASI BURAYA EKLENDİ
+app.router.add_get('/ping', ping)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
