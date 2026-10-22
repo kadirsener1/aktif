@@ -4,11 +4,15 @@ import asyncio
 import json
 import os
 import re
+import time
 
 CONFIG_FILE = "channels.json"
 
+# Hafıza (Cache) yapısı: { "kanal_adi": { "url": "çalışan_link", "time": zaman_damgasi } }
+STREAM_CACHE = {}
+CACHE_DURATION = 600  # 10 dakika boyunca aynı linki tekrar test etmez, hafızadan sunar
+
 def load_channels():
-    """Kanal listesini JSON dosyasından okur."""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -18,31 +22,42 @@ def load_channels():
     return {}
 
 async def check_url(session, url):
-    """M3U8 linkini test eder, çalışıyorsa çözünürlük skorunu hesaplar."""
+    """M3U8 linkini test eder; 2 saniye içinde yanıt vermezse eler."""
+    start_time = time.time()
     try:
-        async with session.get(url, timeout=4.0) as response:
+        async with session.get(url, timeout=2.0) as response:
+            elapsed_time = time.time() - start_time
+            
             if response.status == 200:
                 content = await response.text()
                 if "#EXTM3U" in content:
                     max_res_score = 0
-                    # M3U8 içeriğindeki çözünürlük etiketlerini arar (Örn: RESOLUTION=1920x1080)
                     resolutions = re.findall(r'RESOLUTION=(\d+)x(\d+)', content)
+                    
                     if resolutions:
                         for w, h in resolutions:
                             score = int(w) * int(h)
                             if score > max_res_score:
                                 max_res_score = score
                     else:
-                        # Eğer master playlist değilse ve çözünürlük etiketi yoksa standart taban skor verilir
-                        max_res_score = 100 
+                        max_res_score = 921600 # 720p taban skor
                     
-                    return (url, max_res_score)
+                    stability_score = max_res_score / (1.0 + (elapsed_time * 2.0))
+                    return (url, stability_score)
     except Exception:
         pass
     return None
 
 async def get_working_stream(channel_name):
-    """Çalışan linkler arasından çözünürlüğü en yüksek olanı seçer."""
+    current_time = time.time()
+    
+    # 1. Önce Hafızaya (Cache) Bak: Eğer kanal daha önce test edilmişse ve 10 dakika geçmemişse direkt döndür
+    if channel_name in STREAM_CACHE:
+        cached_data = STREAM_CACHE[channel_name]
+        if current_time - cached_data["time"] < CACHE_DURATION:
+            return cached_data["url"]
+
+    # 2. Hafızada yoksa veya süresi dolmuşsa yeni baştan test et
     channels = load_channels()
     sources = channels.get(channel_name)
     if not sources:
@@ -52,20 +67,22 @@ async def get_working_stream(channel_name):
         tasks = [check_url(session, url) for url in sources]
         results = await asyncio.gather(*tasks)
         
-        # Sadece çalışan (None olmayan) linkleri filtrele
         working_streams = [res for res in results if res is not None]
-        
         if not working_streams:
             return None
         
-        # Çözünürlük skoruna göre büyükten küçüğe sırala (En yüksek çözünürlük ilk sıraya gelir)
         working_streams.sort(key=lambda x: x[1], reverse=True)
+        best_url = working_streams[0][0]
         
-        # En yüksek çözünürlüklü linki döndür
-        return working_streams[0][0]
+        # 3. Bulunan en iyi linki hafızaya kaydet
+        STREAM_CACHE[channel_name] = {
+            "url": best_url,
+            "time": current_time
+        }
+        
+        return best_url
 
 async def handle_stream(request):
-    """Kanal adına göre en yüksek çözünürlüklü çalışan yayına yönlendirir."""
     channel_name = request.match_info.get('channel_name')
     channels = load_channels()
     
@@ -80,7 +97,7 @@ async def handle_stream(request):
     raise web.HTTPFound(working_url)
 
 async def health_check(request):
-    return web.Response(text="Resolution-Aware Failover Proxy Çalışıyor")
+    return web.Response(text="Cached Multi-Channel Proxy Çalışıyor")
 
 app = web.Application()
 app.router.add_get('/play/{channel_name}', handle_stream)
