@@ -9,7 +9,7 @@ import base64
 
 CONFIG_FILE = "channels.json"
 STREAM_CACHE = {}
-CACHE_DURATION = 600  # 10 dakika
+CACHE_DURATION = 60  # Cache süresi 1 dakika
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
@@ -82,7 +82,6 @@ def basic_auth_required(handler):
 async def check_url(session, url):
     start_time = time.time()
     try:
-        # 2 saniye timeout ile hızden ödün vermiyoruz
         async with session.get(url, timeout=2.0) as response:
             elapsed_time = time.time() - start_time
             if response.status == 200:
@@ -96,14 +95,9 @@ async def check_url(session, url):
                             if h_val > max_height:
                                 max_height = h_val
                     else:
-                        max_height = 720  # Çözünürlük bilgisi yoksa orta kalite (720p) kabul edilir
+                        max_height = 720
                     
-                    # ADİL KALİTE VE STABİLİTE FORMÜLÜ:
-                    # Puan = Çözünürlük Yüksekliği (1080, 720, 480) / (Yanıt Süresi + Sabit Gecikme)
-                    # Yorum: 1080p bir yayın yavaş yanıt verirse (elapsed_time yüksek çıkarsa), 
-                    # skoru hızla düşer ve akıcı çalışan 720p yayın onun önüne geçer.
                     stability_score = max_height / (elapsed_time + 0.2)
-                    
                     return (url, stability_score)
     except Exception:
         pass
@@ -130,7 +124,6 @@ async def get_working_stream(channel_name):
         if not working_streams:
             return None
         
-        # En yüksek stabilite/hız skoruna göre sırala (En yüksek puan kazanan ilk sıraya gelir)
         working_streams.sort(key=lambda x: x[1], reverse=True)
         best_url = working_streams[0][0]
         
@@ -191,6 +184,12 @@ async def admin_delete(request):
     raise web.HTTPFound('/')
 
 @basic_auth_required
+async def admin_clear_cache(request):
+    """Tüm önbelleği (cache) anında temizler."""
+    STREAM_CACHE.clear()
+    raise web.HTTPFound('/')
+
+@basic_auth_required
 async def dashboard(request):
     channels = load_channels()
     current_time = time.time()
@@ -209,12 +208,14 @@ async def dashboard(request):
             p.subtitle {{ color: #94a3b8; margin-top: 0; }}
             .card {{ background: #1e293b; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }}
             input, textarea {{ width: 100%; padding: 10px; margin: 6px 0 12px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 4px; box-sizing: border-box; }}
-            button {{ background: #0284c7; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; }}
-            button:hover {{ background: #0369a1; }}
+            button, .btn-action {{ background: #0284c7; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; text-decoration: none; display: inline-block; }}
+            button:hover, .btn-action:hover {{ background: #0369a1; }}
             .btn-danger {{ background: #dc2626; padding: 6px 12px; font-size: 12px; }}
             .btn-danger:hover {{ background: #b91c1c; }}
             .btn-warning {{ background: #d97706; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
             .btn-warning:hover {{ background: #b45309; }}
+            .btn-clear {{ background: #0d9488; margin-bottom: 15px; }}
+            .btn-clear:hover {{ background: #0f766e; }}
             .btn-secondary {{ background: #475569; padding: 6px 12px; font-size: 12px; margin-left: 10px; display: none; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; }}
@@ -254,8 +255,10 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Akıllı Hız & Kalite Dengesi Aktif (Stabil olmayan 1080p yerine hızlı 720p tercih edilir)</p>
+            <p class="subtitle">Cache süresi 1 dakika. İstediğiniz an aşağıdaki butondan önbelleği sıfırlayabilirsiniz.</p>
             
+            <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek (cache) temizlensin mi?')">🧹 Önbelleği (Cache) Anında Temizle</a>
+
             <div class="card">
                 <h3 id="form-title">Yeni Kanal Ekle</h3>
                 <form action="/admin/save" method="POST">
@@ -279,7 +282,7 @@ async def dashboard(request):
                         <tr>
                             <th>Kanal Adı</th>
                             <th>Durum</th>
-                            <th>Oynatıcı Linki & Seçilen Stabil Kaynak</th>
+                            <th>Oynatıcı Linki & Seçilen Kaynak</th>
                             <th>İşlem</th>
                         </tr>
                     </thead>
@@ -325,6 +328,7 @@ app.router.add_get('/play/{channel_name}', handle_stream)
 app.router.add_get('/', dashboard)
 app.router.add_post('/admin/save', admin_save)
 app.router.add_get('/admin/delete/{channel_name}', admin_delete)
+app.router.add_get('/admin/clear-cache', admin_clear_cache)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
