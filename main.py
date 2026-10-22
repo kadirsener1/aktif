@@ -97,12 +97,8 @@ async def check_url(session, url):
                     else:
                         max_height = 720  # Çözünürlük bilgisi yoksa orta kalite kabul edilir
                     
-                    # TÜM İZLEYİCİLER İÇİN GÜNCELLENMİŞ STABİLİTE FORMÜLÜ:
-                    # Gecikme süresi (elapsed_time) cezası artırıldı (x3.0). 
-                    # Böylece ağır veya yavaş yanıt veren 1080p kaynaklar elenir, 
-                    # zayıf internetli izleyicileri de koruyan en hızlı ve akıcı kaynak öne geçer.
+                    # Tüm izleyicileri koruyan hız ve stabilite dengeli formül
                     stability_score = max_height / (elapsed_time * 3.0 + 0.1)
-                    
                     return (url, stability_score)
     except Exception:
         pass
@@ -257,12 +253,30 @@ async def dashboard(request):
                 document.getElementById('submit-btn').innerText = "Kanalı Ekle ve GitHub'a Kaydet";
                 document.getElementById('cancel-btn').style.display = "none";
             }}
+            
+            function filterChannels() {{
+                const input = document.getElementById('searchInput').value.toLowerCase();
+                const table = document.getElementById('channelTable');
+                const trs = table.getElementsByTagName('tr');
+                
+                for (let i = 1; i < trs.length; i++) {{
+                    const td = trs[i].getElementsByTagName('td')[0];
+                    if (td) {{
+                        const textValue = td.textContent || td.innerText;
+                        if (textValue.toLowerCase().indexOf(input) > -1) {{
+                            trs[i].style.display = "";
+                        }} else {{
+                            trs[i].style.display = "none";
+                        }}
+                    }}
+                }}
+            }}
         </script>
     </head>
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Tüm izleyicilerin internet kalitesi gözetilerek optimize edilmiş akıllı denge algoritması aktif.</p>
+            <p class="subtitle">Arama çubuğu ve akıllı stabilite algoritması aktif.</p>
             
             <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek (cache) temizlensin mi?')">🧹 Önbelleği (Cache) Anında Temizle</a>
 
@@ -284,7 +298,8 @@ async def dashboard(request):
 
             <div class="card">
                 <h3>Tanımlı Kanallar Listesi</h3>
-                <table>
+                <input type="text" id="searchInput" placeholder="🔍 Kanal adıyla hızlıca ara..." onkeyup="filterChannels()">
+                <table id="channelTable">
                     <thead>
                         <tr>
                             <th>Kanal Adı</th>
