@@ -17,7 +17,20 @@ ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
 
 def load_channels():
-    # Render'da güncel kalması için önce GitHub'dan çekmeyi deniyoruz (Eğer token ve repo tanımlıysa)
+    local_channels = {}
+    github_channels = {}
+
+    # 1. Önce yerel dosyayı oku (varsa)
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                local_channels = json.load(f)
+                if not isinstance(local_channels, dict):
+                    local_channels = {}
+        except Exception:
+            pass
+
+    # 2. GitHub'dan en güncel veriyi çekmeye çalış
     if GITHUB_TOKEN and GITHUB_REPO:
         try:
             import requests
@@ -31,27 +44,34 @@ def load_channels():
                 file_data = res.json()
                 if "content" in file_data:
                     decoded_content = base64.b64decode(file_data["content"]).decode("utf-8")
-                    channels_data = json.loads(decoded_content)
-                    # Yerel dosyayı da güncel tutalım
-                    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                        json.dump(channels_data, f, ensure_ascii=False, indent=4)
-                    return channels_data
+                    github_channels = json.loads(decoded_content)
+                    if not isinstance(github_channels, dict):
+                        github_channels = {}
         except Exception as e:
-            print(f"GitHub Load Error (Fallback to local): {e}")
+            print(f"GitHub Load Error: {e}")
 
-    # GitHub'dan çekilemezse yerel dosyaya bak
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    # 3. İki kaynağı birleştir (Merge): GitHub ve Yerel verileri harmanla (Veri kaybını önlemek için)
+    # GitHub önceliklidir, ancak yerelde olup GitHub'da olmayan yeni eklemeler silinmez.
+    merged_channels = {**local_channels, **github_channels}
+
+    # Birleştirilmiş güncel hali yerel diske de yazıp eşitleyelفظ
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(merged_channels, f, ensure_ascii=False, indent=4)
+    except Exception:
+        pass
+
+    return merged_channels
 
 def save_and_push_channels(channels):
     try:
+        # Önce mevcut GitHub verisini çekip üzerine güvenli ekleme yapalım (Veri kaybı olmasın)
+        current_channels = load_channels()
+        # Gönderilen güncel sözlüğü mevcutla güncelle
+        current_channels.update(channels)
+
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(channels, f, ensure_ascii=False, indent=4)
+            json.dump(current_channels, f, ensure_ascii=False, indent=4)
         
         if GITHUB_TOKEN and GITHUB_REPO:
             import requests
@@ -63,11 +83,11 @@ def save_and_push_channels(channels):
             res = requests.get(url, headers=headers)
             sha = res.json().get("sha") if res.status_code == 200 else None
             
-            content_str = json.dumps(channels, ensure_ascii=False, indent=4)
+            content_str = json.dumps(current_channels, ensure_ascii=False, indent=4)
             content_encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
             
             data = {
-                "message": "Admin panelinden channels.json güncellendi",
+                "message": "Admin panelinden channels.json güncellendi ve senkronize edildi",
                 "content": content_encoded,
                 "sha": sha
             }
