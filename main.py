@@ -9,7 +9,7 @@ import base64
 
 CONFIG_FILE = "channels.json"
 STREAM_CACHE = {}
-CACHE_DURATION = 10  # 1 dakika cache
+CACHE_DURATION = 60  # 1 dakika cache
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
@@ -123,26 +123,72 @@ def basic_auth_required(handler):
     return wrapper
 
 async def check_url(session, url):
+    """
+    Verilen M3U8 URL'sini test eder.
+    Çözünürlük, bandwidth, yanıt hızı ve playlist güvenilirliğini
+    birlikte değerlendirerek 0-100 arası birleşik skor döner.
+    """
     start_time = time.time()
     try:
-        async with session.get(url, timeout=2.0) as response:
+        timeout = aiohttp.ClientTimeout(total=4.0)
+        async with session.get(url, timeout=timeout) as response:
             elapsed_time = time.time() - start_time
-            if response.status == 200:
-                content = await response.text()
-                if "#EXTM3U" in content:
-                    max_height = 0
-                    resolutions = re.findall(r'RESOLUTION=(\d+)x(\d+)', content)
-                    if resolutions:
-                        for w, h in resolutions:
-                            h_val = int(h)
-                            if h_val > max_height:
-                                max_height = h_val
-                    else:
-                        max_height = 720  # Çözünürlük bilgisi yoksa orta kalite kabul edilir
-                    
-                    # Tüm izleyicileri koruyan hız ve stabilite dengeli formül
-                    stability_score = max_height / (elapsed_time * 3.0 + 0.1)
-                    return (url, stability_score)
+            if response.status != 200:
+                return None
+
+            content = await response.text()
+            if "#EXTM3U" not in content:
+                return None
+
+            # ── 1. ÇÖZÜNÜRLÜK ANALİZİ ──
+            resolutions = re.findall(r'RESOLUTION=(\d+)x(\d+)', content)
+            if resolutions:
+                max_height = max(int(h) for _, h in resolutions)
+            else:
+                max_height = 480  # Bilgi yoksa muhafazakâr tahmin
+
+            # ── 2. BANDWIDTH ANALİZİ ──
+            bandwidths = re.findall(r'BANDWIDTH=(\d+)', content)
+            max_bandwidth = max(int(b) for b in bandwidths) if bandwidths else 0
+
+            # ── 3. STABİLİTE / GÜVENİLİRLİK ANALİZİ ──
+            segment_count = len(re.findall(r'#EXTINF:', content))
+            has_target_duration = '#EXT-X-TARGETDURATION' in content
+            is_master = '#EXT-X-STREAM-INF' in content
+
+            # ── 4. BİLEŞİK SKOR HESAPLAMA (0 – 100) ──
+
+            # a) Çözünürlük skoru  (1080p → 100, 720p → 67, 480p → 44)
+            resolution_score = min(max_height / 10.8, 100.0)
+
+            # b) Bandwidth skoru  (8 Mbps → 100)
+            if max_bandwidth > 0:
+                bandwidth_score = min(max_bandwidth / 80000.0, 100.0)
+            else:
+                bandwidth_score = resolution_score * 0.7
+
+            # c) Hız skoru  (0.3s → 92, 1s → 72, 2s → 44, 3.5s → 2)
+            speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
+
+            # d) Playlist güvenilirlik skoru
+            reliability_score = 40.0
+            if segment_count > 0:
+                reliability_score += min(segment_count * 5.0, 30.0)
+            if has_target_duration:
+                reliability_score += 15.0
+            if is_master:
+                reliability_score += 15.0  # Adaptif = daha esnek
+            reliability_score = min(reliability_score, 100.0)
+
+            # e) Ağırlıklı toplam
+            final_score = (
+                resolution_score  * 0.35 +
+                bandwidth_score   * 0.15 +
+                speed_score       * 0.25 +
+                reliability_score * 0.25
+            )
+
+            return (url, final_score)
     except Exception:
         pass
     return None
