@@ -17,6 +17,29 @@ ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
 
 def load_channels():
+    # Render'da güncel kalması için önce GitHub'dan çekmeyi deniyoruz (Eğer token ve repo tanımlıysa)
+    if GITHUB_TOKEN and GITHUB_REPO:
+        try:
+            import requests
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CONFIG_FILE}"
+            headers = {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json"
+            }
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                file_data = res.json()
+                if "content" in file_data:
+                    decoded_content = base64.b64decode(file_data["content"]).decode("utf-8")
+                    channels_data = json.loads(decoded_content)
+                    # Yerel dosyayı da güncel tutalım
+                    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                        json.dump(channels_data, f, ensure_ascii=False, indent=4)
+                    return channels_data
+        except Exception as e:
+            print(f"GitHub Load Error (Fallback to local): {e}")
+
+    # GitHub'dan çekilemezse yerel dosyaya bak
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
