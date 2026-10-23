@@ -55,5 +55,10 @@
     "beiniz": [
         "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/16912230784a73b11d66ed",
         "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/31561783590bdea7d4bf69"
+    ],
+    "natgeo": [
+        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/184566063009c2eced111a",
+        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1960546091bcaf052d3800",
+        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1514492628e6d09b31660c"
     ]
 }
