@@ -8,9 +8,8 @@ import time
 import base64
 
 CONFIG_FILE = "channels.json"
-STREAM_CACHE = {}       # En iyi URL cache
-SCORE_CACHE = {}        # Tüm URL skorlarını tutar
-CACHE_DURATION = 60     # 1 dakika cache
+STREAM_CACHE = {}
+CACHE_DURATION = 60  # 1 dakika cache
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
@@ -21,6 +20,7 @@ def load_channels():
     local_channels = {}
     github_channels = {}
 
+    # 1. Önce yerel dosyayı oku (varsa)
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -30,6 +30,7 @@ def load_channels():
         except Exception:
             pass
 
+    # 2. GitHub'dan en güncel veriyi çekmeye çalış
     if GITHUB_TOKEN and GITHUB_REPO:
         try:
             import requests
@@ -49,8 +50,11 @@ def load_channels():
         except Exception as e:
             print(f"GitHub Load Error: {e}")
 
+    # 3. İki kaynağı birleştir (Merge): GitHub ve Yerel verileri harmanla (Veri kaybını önlemek için)
+    # GitHub önceliklidir, ancak yerelde olup GitHub'da olmayan yeni eklemeler silinmez.
     merged_channels = {**local_channels, **github_channels}
 
+    # Birleştirilmiş güncel hali yerel diske de yazıp eşitleyelفظ
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(merged_channels, f, ensure_ascii=False, indent=4)
@@ -61,7 +65,9 @@ def load_channels():
 
 def save_and_push_channels(channels):
     try:
+        # Önce mevcut GitHub verisini çekip üzerine güvenli ekleme yapalım (Veri kaybı olmasın)
         current_channels = load_channels()
+        # Gönderilen güncel sözlüğü mevcutla güncelle
         current_channels.update(channels)
 
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -117,167 +123,59 @@ def basic_auth_required(handler):
     return wrapper
 
 async def check_url(session, url):
-    """
-    M3U8 URL'sini test eder.
-    Önce çözünürlüğe göre kademeleme yapar (1080 / 720 / 480),
-    sonra her kademede "akıcılık" (hız + bandwidth + stabilite) skoruna bakar.
-    Yüksek çözünürlük ancak akıcıysa seçilir, aksi halde bir alt kademeye düşer.
-    """
     start_time = time.time()
     try:
-        timeout = aiohttp.ClientTimeout(total=4.0)
-        async with session.get(url, timeout=timeout) as response:
+        async with session.get(url, timeout=2.0) as response:
             elapsed_time = time.time() - start_time
-            if response.status != 200:
-                return {
-                    "url": url, "ok": False, "reason": f"HTTP {response.status}",
-                    "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
-                    "speed": elapsed_time
-                }
-
-            content = await response.text()
-            if "#EXTM3U" not in content:
-                return {
-                    "url": url, "ok": False, "reason": "Geçersiz M3U8",
-                    "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
-                    "speed": elapsed_time
-                }
-
-            # Çözünürlük
-            resolutions = re.findall(r'RESOLUTION=(\d+)x(\d+)', content)
-            max_height = max((int(h) for _, h in resolutions), default=480)
-
-            # Bandwidth
-            bandwidths = re.findall(r'BANDWIDTH=(\d+)', content)
-            max_bandwidth = max((int(b) for b in bandwidths), default=0)
-
-            # Güvenilirlik verileri
-            segment_count = len(re.findall(r'#EXTINF:', content))
-            has_target_duration = '#EXT-X-TARGETDURATION' in content
-            is_master = '#EXT-X-STREAM-INF' in content
-
-            # Hız skoru
-            speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
-
-            # Bandwidth yeterlilik skoru
-            if max_bandwidth > 0:
-                if max_height >= 1080:
-                    expected_bw = 5000000
-                elif max_height >= 720:
-                    expected_bw = 2500000
-                else:
-                    expected_bw = 1000000
-                bandwidth_score = min((max_bandwidth / expected_bw) * 60.0, 100.0)
-            else:
-                bandwidth_score = 50.0
-
-            # Güvenilirlik skoru
-            reliability_score = 40.0
-            if segment_count > 0:
-                reliability_score += min(segment_count * 5.0, 30.0)
-            if has_target_duration:
-                reliability_score += 15.0
-            if is_master:
-                reliability_score += 15.0
-            reliability_score = min(reliability_score, 100.0)
-
-            # Akıcılık skoru (çözünürlükten bağımsız)
-            smoothness_score = (
-                speed_score       * 0.45 +
-                bandwidth_score   * 0.30 +
-                reliability_score * 0.25
-            )
-
-            # Kademeli çözünürlük kararı
-            SMOOTH_THRESHOLD = 70.0
-            if max_height >= 1080 and smoothness_score >= SMOOTH_THRESHOLD:
-                tier = 3
-            elif max_height >= 720 and smoothness_score >= SMOOTH_THRESHOLD:
-                tier = 2
-            elif max_height >= 480 and smoothness_score >= SMOOTH_THRESHOLD:
-                tier = 1
-            else:
-                tier = 0
-
-            final_score = (tier * 1000) + smoothness_score
-
-            return {
-                "url": url,
-                "ok": True,
-                "reason": "OK",
-                "score": final_score,
-                "tier": tier,
-                "resolution": max_height,
-                "bandwidth": max_bandwidth,
-                "smoothness": smoothness_score,
-                "speed": elapsed_time,
-                "speed_score": speed_score,
-                "bandwidth_score": bandwidth_score,
-                "reliability_score": reliability_score,
-                "segments": segment_count,
-                "is_master": is_master
-            }
-    except asyncio.TimeoutError:
-        return {
-            "url": url, "ok": False, "reason": "Timeout",
-            "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
-            "speed": time.time() - start_time
-        }
-    except Exception as e:
-        return {
-            "url": url, "ok": False, "reason": f"Hata: {str(e)[:40]}",
-            "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
-            "speed": time.time() - start_time
-        }
-
-async def test_all_sources(channel_name, force=False):
-    """Bir kanalın tüm kaynaklarını test eder ve skorlarını cache'ler."""
-    current_time = time.time()
-
-    if not force and channel_name in SCORE_CACHE:
-        cached = SCORE_CACHE[channel_name]
-        if current_time - cached["time"] < CACHE_DURATION:
-            return cached["results"]
-
-    channels = load_channels()
-    sources = channels.get(channel_name)
-    if not sources:
-        return []
-
-    async with aiohttp.ClientSession() as session:
-        tasks = [check_url(session, url) for url in sources]
-        results = await asyncio.gather(*tasks)
-
-    results = [r for r in results if r is not None]
-
-    SCORE_CACHE[channel_name] = {"time": current_time, "results": results}
-
-    # En iyi aktif URL'yi STREAM_CACHE'e yaz
-    working = [r for r in results if r["ok"]]
-    if working:
-        working.sort(key=lambda x: x["score"], reverse=True)
-        STREAM_CACHE[channel_name] = {
-            "url": working[0]["url"],
-            "time": current_time,
-            "score": working[0]["score"]
-        }
-
-    return results
+            if response.status == 200:
+                content = await response.text()
+                if "#EXTM3U" in content:
+                    max_height = 0
+                    resolutions = re.findall(r'RESOLUTION=(\d+)x(\d+)', content)
+                    if resolutions:
+                        for w, h in resolutions:
+                            h_val = int(h)
+                            if h_val > max_height:
+                                max_height = h_val
+                    else:
+                        max_height = 720  # Çözünürlük bilgisi yoksa orta kalite kabul edilir
+                    
+                    # Tüm izleyicileri koruyan hız ve stabilite dengeli formül
+                    stability_score = max_height / (elapsed_time * 3.0 + 0.1)
+                    return (url, stability_score)
+    except Exception:
+        pass
+    return None
 
 async def get_working_stream(channel_name):
     current_time = time.time()
-
+    
     if channel_name in STREAM_CACHE:
         cached_data = STREAM_CACHE[channel_name]
         if current_time - cached_data["time"] < CACHE_DURATION:
             return cached_data["url"]
 
-    results = await test_all_sources(channel_name, force=True)
-    working = [r for r in results if r["ok"]]
-    if not working:
+    channels = load_channels()
+    sources = channels.get(channel_name)
+    if not sources:
         return None
-    working.sort(key=lambda x: x["score"], reverse=True)
-    return working[0]["url"]
+        
+    async with aiohttp.ClientSession() as session:
+        tasks = [check_url(session, url) for url in sources]
+        results = await asyncio.gather(*tasks)
+        
+        working_streams = [res for res in results if res is not None]
+        if not working_streams:
+            return None
+        
+        working_streams.sort(key=lambda x: x[1], reverse=True)
+        best_url = working_streams[0][0]
+        
+        STREAM_CACHE[channel_name] = {
+            "url": best_url,
+            "time": current_time
+        }
+        return best_url
 
 async def ping(request):
     return web.Response(text="OK", status=200)
@@ -310,16 +208,12 @@ async def admin_save(request):
             del channels[old_name]
             if old_name in STREAM_CACHE:
                 del STREAM_CACHE[old_name]
-            if old_name in SCORE_CACHE:
-                del SCORE_CACHE[old_name]
         
         channels[channel_name] = urls
         save_and_push_channels(channels)
         
         if channel_name in STREAM_CACHE:
             del STREAM_CACHE[channel_name]
-        if channel_name in SCORE_CACHE:
-            del SCORE_CACHE[channel_name]
             
     raise web.HTTPFound('/')
 
@@ -333,38 +227,13 @@ async def admin_delete(request):
         save_and_push_channels(channels)
         if channel_name in STREAM_CACHE:
             del STREAM_CACHE[channel_name]
-        if channel_name in SCORE_CACHE:
-            del SCORE_CACHE[channel_name]
             
     raise web.HTTPFound('/')
 
 @basic_auth_required
 async def admin_clear_cache(request):
     STREAM_CACHE.clear()
-    SCORE_CACHE.clear()
     raise web.HTTPFound('/')
-
-@basic_auth_required
-async def admin_test_channel(request):
-    """Belirli bir kanalın tüm linklerini test eder ve JSON döner."""
-    channel_name = request.match_info.get('channel_name')
-    channels = load_channels()
-    if channel_name not in channels:
-        return web.json_response({"error": "Kanal bulunamadı"}, status=404)
-
-    results = await test_all_sources(channel_name, force=True)
-
-    best_url = None
-    working = [r for r in results if r["ok"]]
-    if working:
-        working.sort(key=lambda x: x["score"], reverse=True)
-        best_url = working[0]["url"]
-
-    return web.json_response({
-        "channel": channel_name,
-        "best_url": best_url,
-        "results": results
-    })
 
 @basic_auth_required
 async def dashboard(request):
@@ -380,7 +249,7 @@ async def dashboard(request):
         <title>IPTV Failover Admin Paneli</title>
         <style>
             body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }}
-            .container {{ max-width: 1200px; margin: 0 auto; }}
+            .container {{ max-width: 1100px; margin: 0 auto; }}
             h1 {{ color: #38bdf8; font-size: 24px; margin-bottom: 5px; }}
             p.subtitle {{ color: #94a3b8; margin-top: 0; }}
             .card {{ background: #1e293b; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }}
@@ -391,36 +260,17 @@ async def dashboard(request):
             .btn-danger:hover {{ background: #b91c1c; }}
             .btn-warning {{ background: #d97706; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
             .btn-warning:hover {{ background: #b45309; }}
-            .btn-test {{ background: #7c3aed; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
-            .btn-test:hover {{ background: #6d28d9; }}
             .btn-clear {{ background: #0d9488; margin-bottom: 15px; }}
             .btn-clear:hover {{ background: #0f766e; }}
             .btn-secondary {{ background: #475569; padding: 6px 12px; font-size: 12px; margin-left: 10px; display: none; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-            th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; vertical-align: top; }}
+            th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; }}
             th {{ background: #0f172a; color: #38bdf8; font-weight: 600; }}
             tr:last-child td {{ border-bottom: none; }}
             .badge-cached {{ background: #1e3a8a; color: #60a5fa; padding: 4px 8px; border-radius: 4px; font-size: 12px; }}
             .badge-inactive {{ background: #334155; color: #94a3b8; padding: 4px 8px; border-radius: 4px; font-size: 12px; }}
             a {{ color: #38bdf8; text-decoration: none; }}
             a:hover {{ text-decoration: underline; }}
-            .score-detail {{ display: none; background: #0f172a; padding: 12px; border-radius: 6px; margin-top: 8px; }}
-            .score-detail.open {{ display: block; }}
-            .score-row {{ padding: 8px; margin: 4px 0; background: #1e293b; border-radius: 4px; border-left: 3px solid #475569; }}
-            .score-row.best {{ border-left-color: #22c55e; background: #052e16; }}
-            .score-row.failed {{ border-left-color: #dc2626; background: #450a0a; opacity: 0.7; }}
-            .score-url {{ font-family: monospace; font-size: 11px; color: #cbd5e1; word-break: break-all; }}
-            .score-stats {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 11px; }}
-            .stat {{ background: #334155; padding: 3px 8px; border-radius: 4px; color: #e2e8f0; }}
-            .stat.good {{ background: #166534; color: #bbf7d0; }}
-            .stat.mid {{ background: #854d0e; color: #fef08a; }}
-            .stat.bad {{ background: #991b1b; color: #fecaca; }}
-            .tier-badge {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px; }}
-            .tier-3 {{ background: #22c55e; color: #052e16; }}
-            .tier-2 {{ background: #3b82f6; color: #0c1a3a; }}
-            .tier-1 {{ background: #f59e0b; color: #431407; }}
-            .tier-0 {{ background: #6b7280; color: #0f172a; }}
-            .loading {{ color: #94a3b8; font-style: italic; padding: 10px; }}
         </style>
         <script>
             const allChannels = {channels_json_esc};
@@ -464,84 +314,12 @@ async def dashboard(request):
                     }}
                 }}
             }}
-
-            function tierLabel(tier, resolution) {{
-                const labels = {{3: "1080p ✅", 2: "720p ✅", 1: "480p ✅", 0: "Zayıf ⚠️"}};
-                return labels[tier] + " (" + resolution + "p)";
-            }}
-
-            function statClass(value, good, mid) {{
-                if (value >= good) return "good";
-                if (value >= mid) return "mid";
-                return "bad";
-            }}
-
-            async function testChannel(name) {{
-                const container = document.getElementById('scores-' + name);
-                container.classList.add('open');
-                container.innerHTML = '<div class="loading">🔄 Linkler test ediliyor, lütfen bekleyin...</div>';
-
-                try {{
-                    const res = await fetch('/admin/test/' + name);
-                    const data = await res.json();
-
-                    if (!data.results || data.results.length === 0) {{
-                        container.innerHTML = '<div class="loading">⚠️ Sonuç yok.</div>';
-                        return;
-                    }}
-
-                    const sorted = data.results.slice().sort((a, b) => b.score - a.score);
-                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi. En yüksek skorlu seçilir.</div>';
-
-                    sorted.forEach((r, idx) => {{
-                        const isBest = r.url === data.best_url;
-                        const cssClass = !r.ok ? 'failed' : (isBest ? 'best' : '');
-                        html += '<div class="score-row ' + cssClass + '">';
-                        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">';
-                        html += '<strong>#' + (idx+1) + ' ';
-                        if (isBest) html += '🏆 SEÇİLDİ ';
-                        if (!r.ok) html += '❌ ';
-                        html += 'Skor: ' + r.score.toFixed(1) + '</strong>';
-                        if (r.ok) {{
-                            html += '<span class="tier-badge tier-' + r.tier + '">' + tierLabel(r.tier, r.resolution) + '</span>';
-                        }} else {{
-                            html += '<span class="tier-badge tier-0">' + r.reason + '</span>';
-                        }}
-                        html += '</div>';
-                        html += '<div class="score-url">' + r.url + '</div>';
-                        if (r.ok) {{
-                            html += '<div class="score-stats">';
-                            html += '<span class="stat ' + statClass(r.smoothness, 70, 50) + '">Akıcılık: ' + r.smoothness.toFixed(1) + '</span>';
-                            html += '<span class="stat ' + statClass(100 - r.speed*28, 70, 50) + '">Hız: ' + (r.speed*1000).toFixed(0) + ' ms</span>';
-                            html += '<span class="stat">Çözünürlük: ' + r.resolution + 'p</span>';
-                            if (r.bandwidth > 0) html += '<span class="stat">Bandwidth: ' + (r.bandwidth/1000000).toFixed(2) + ' Mbps</span>';
-                            html += '<span class="stat">Segment: ' + r.segments + '</span>';
-                            if (r.is_master) html += '<span class="stat good">Master Playlist</span>';
-                            html += '</div>';
-                        }}
-                        html += '</div>';
-                    }});
-
-                    container.innerHTML = html;
-                }} catch (e) {{
-                    container.innerHTML = '<div class="loading">❌ Hata: ' + e.message + '</div>';
-                }}
-            }}
-
-            function toggleScores(name) {{
-                const container = document.getElementById('scores-' + name);
-                if (container.classList.contains('open') && container.innerHTML.trim() !== '') {{
-                    container.classList.remove('open');
-                }} else {{
-                    testChannel(name);
-                }}
-            }}
         </script>
     </head>
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Kademeli çözünürlük seçimi (1080→720→480) + akıcılık odaklı skor sistemi.</p>
+            <p class="subtitle">Arama çubuğu ve akıllı stabilite algoritması aktif.</p>
             
             <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek (cache) temizlensin mi?')">🧹 Önbelleği (Cache) Anında Temizle</a>
 
@@ -582,24 +360,18 @@ async def dashboard(request):
         cache_info = STREAM_CACHE.get(name)
         
         if cache_info and (current_time - cache_info["time"] < CACHE_DURATION):
-            score_text = f" (Skor: {cache_info.get('score', 0):.1f})"
-            status_html = f'<span class="badge-cached">Önbellekte Aktif</span>'
-            active_url = cache_info["url"] + score_text
+            status_html = '<span class="badge-cached">Önbellekte Aktif</span>'
+            active_url = cache_info["url"]
         else:
             status_html = '<span class="badge-inactive">Test Bekliyor</span>'
-            active_url = f"{len(sources)} kaynak tanımlı - test için 'Skorları Göster' tıkla"
+            active_url = "İlk açılışta test edilecek"
         
         html += f"""
                         <tr>
                             <td><strong>{name}</strong></td>
                             <td>{status_html}</td>
+                            <td><a href="{play_link}" target="_blank">{play_link}</a><br><small style="color: #94a3b8; word-break: break-all;">{active_url}</small></td>
                             <td>
-                                <a href="{play_link}" target="_blank">{play_link}</a><br>
-                                <small style="color: #94a3b8; word-break: break-all;">{active_url}</small>
-                                <div id="scores-{name}" class="score-detail"></div>
-                            </td>
-                            <td>
-                                <button class="btn-test" onclick="toggleScores('{name}')">📊 Skorlar</button>
                                 <button class="btn-warning" onclick="editChannel('{name}')">Düzenle</button>
                                 <a href="{delete_link}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
                             </td>
@@ -622,7 +394,6 @@ app.router.add_get('/', dashboard)
 app.router.add_post('/admin/save', admin_save)
 app.router.add_get('/admin/delete/{channel_name}', admin_delete)
 app.router.add_get('/admin/clear-cache', admin_clear_cache)
-app.router.add_get('/admin/test/{channel_name}', admin_test_channel)
 app.router.add_get('/ping', ping)
 
 if __name__ == '__main__':
