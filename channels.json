@@ -7,13 +7,13 @@
         "https://docu-source-1.com/playlist.m3u8"
     ],
     "atv": [
-        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2325261286cc81b01cf95d",
-        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/4559304258567c5d6cd2a",
-        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/125559433707e42d1e715f",
-        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/28610106416f22e0cc8dbc",
-        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1332310706d6138ade7950",
-        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/129909794290450d5e2d1",
-        "https://vavoo.magnitude.workers.dev/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/35111504916c34560a3894",
-        "https://vavoo.magnitude.workers.dev/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/962169494c61eb5a2ee2f"
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2325261286cc81b01cf95d",
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/4559304258567c5d6cd2a",
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/125559433707e42d1e715f",
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/28610106416f22e0cc8dbc",
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1332310706d6138ade7950",
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/129909794290450d5e2d1",
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/35111504916c34560a3894",
+        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/962169494c61eb5a2ee2f"
     ]
 }
