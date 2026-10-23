@@ -9,7 +9,7 @@ import base64
 
 CONFIG_FILE = "channels.json"
 STREAM_CACHE = {}
-CACHE_DURATION = 60  # 1 dakika cache
+CACHE_DURATION = 10  # 1 dakika cache
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
