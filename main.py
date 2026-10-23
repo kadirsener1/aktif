@@ -12,7 +12,7 @@ STREAM_CACHE = {}
 SCORE_CACHE = {}
 M3U8_CACHE = {}
 CACHE_DURATION = 60
-M3U8_CACHE_DURATION = 300          # 5 dakika M3U8 cache
+M3U8_CACHE_DURATION = 60          # 5 dakika M3U8 cache
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
