@@ -1,65 +1,19 @@
 {
+    "sinematv": [
+        "https://sinema-kaynak-1.com/live.m3u8",
+        "https://sinema-kaynak-2.net/stream.m3u8"
+    ],
+    "belgeseltv": [
+        "https://docu-source-1.com/playlist.m3u8"
+    ],
     "atv": [
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2325261286cc81b01cf95d",
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/4559304258567c5d6cd2a",
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/125559433707e42d1e715f",
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/28610106416f22e0cc8dbc",
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1332310706d6138ade7950",
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/129909794290450d5e2d1",
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/35111504916c34560a3894",
-        "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/962169494c61eb5a2ee2f"
-    ],
-    "beinsport1sd": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1363827223a1c98515d612",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2919229346c4e9a95ddb3f"
-    ],
-    "beinsport1_2": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/13524210538e192d878d20",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2729088606df69156b1eda",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/24034250314fd9aa349685",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/66217962033a2d3e9c47f"
-    ],
-    "beinsport1_3": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/5934938605e361d7e0ff0",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/499485497d6131f47417d",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2113462398d8dd57a8ea73",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/143239535a2e3c23c1d16"
-    ],
-    "beinsport1all": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/300113394ceebba66c8ad",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/38404756531618c87fcc66",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/22330664333ebb4acbb6ab",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/342898470360b159ef8301",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2576216897d1c2b14af4e9",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/13524210538e192d878d20",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2729088606df69156b1eda",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/24034250314fd9aa349685",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/66217962033a2d3e9c47f",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/5934938605e361d7e0ff0",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/499485497d6131f47417d",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2113462398d8dd57a8ea73",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/143239535a2e3c23c1d16"
-    ],
-    "beinsport1_1": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/300113394ceebba66c8ad",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/38404756531618c87fcc66",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/22330664333ebb4acbb6ab",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/342898470360b159ef8301",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2576216897d1c2b14af4e9"
-    ],
-    "gurme": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/361703541447c2d8cea904",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/35832308581a7336e4ddeb",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/9503946561e741aaf1f5f"
-    ],
-    "beiniz": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/16912230784a73b11d66ed",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/31561783590bdea7d4bf69"
-    ],
-    "natgeo": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/184566063009c2eced111a",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1960546091bcaf052d3800",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1514492628e6d09b31660c",
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/10783553250ea885deefe4"
+        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2325261286cc81b01cf95d",
+        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/4559304258567c5d6cd2a",
+        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/125559433707e42d1e715f",
+        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/28610106416f22e0cc8dbc",
+        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1332310706d6138ade7950",
+        "https://vavoorender.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/129909794290450d5e2d1",
+        "https://vavoo.magnitude.workers.dev/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/35111504916c34560a3894",
+        "https://vavoo.magnitude.workers.dev/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/962169494c61eb5a2ee2f"
     ]
 }
