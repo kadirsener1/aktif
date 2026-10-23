@@ -8,11 +8,9 @@ import time
 import base64
 
 CONFIG_FILE = "channels.json"
-STREAM_CACHE = {}
-SCORE_CACHE = {}
-M3U8_CACHE = {}
-CACHE_DURATION = 60
-M3U8_CACHE_DURATION = 60          # 5 dakika M3U8 cache
+STREAM_CACHE = {}       # En iyi URL cache
+SCORE_CACHE = {}        # Tüm URL skorlarını tutar
+CACHE_DURATION = 60     # 1 dakika cache
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
@@ -22,6 +20,7 @@ ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
 def load_channels():
     local_channels = {}
     github_channels = {}
+
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -30,45 +29,62 @@ def load_channels():
                     local_channels = {}
         except Exception:
             pass
+
     if GITHUB_TOKEN and GITHUB_REPO:
         try:
             import requests
             url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CONFIG_FILE}"
-            headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+            headers = {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json"
+            }
             res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
-                fd = res.json()
-                if "content" in fd:
-                    dc = base64.b64decode(fd["content"]).decode("utf-8")
-                    github_channels = json.loads(dc)
+                file_data = res.json()
+                if "content" in file_data:
+                    decoded_content = base64.b64decode(file_data["content"]).decode("utf-8")
+                    github_channels = json.loads(decoded_content)
                     if not isinstance(github_channels, dict):
                         github_channels = {}
         except Exception as e:
             print(f"GitHub Load Error: {e}")
-    merged = {**local_channels, **github_channels}
+
+    merged_channels = {**local_channels, **github_channels}
+
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(merged, f, ensure_ascii=False, indent=4)
+            json.dump(merged_channels, f, ensure_ascii=False, indent=4)
     except Exception:
         pass
-    return merged
+
+    return merged_channels
 
 def save_and_push_channels(channels):
     try:
-        current = load_channels()
-        current.update(channels)
+        current_channels = load_channels()
+        current_channels.update(channels)
+
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(current, f, ensure_ascii=False, indent=4)
+            json.dump(current_channels, f, ensure_ascii=False, indent=4)
+        
         if GITHUB_TOKEN and GITHUB_REPO:
             import requests
             url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CONFIG_FILE}"
-            headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+            headers = {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json"
+            }
             res = requests.get(url, headers=headers)
             sha = res.json().get("sha") if res.status_code == 200 else None
-            cs = json.dumps(current, ensure_ascii=False, indent=4)
-            ce = base64.b64encode(cs.encode("utf-8")).decode("utf-8")
-            data = {"message": "Admin panelinden channels.json güncellendi ve senkronize edildi",
-                    "content": ce, "sha": sha}
+            
+            content_str = json.dumps(current_channels, ensure_ascii=False, indent=4)
+            content_encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+            
+            data = {
+                "message": "Admin panelinden channels.json güncellendi ve senkronize edildi",
+                "content": content_encoded,
+                "sha": sha
+            }
             if not sha:
                 data.pop("sha")
             requests.put(url, headers=headers, json=data)
@@ -83,8 +99,8 @@ def check_auth(request):
         auth_type, encoded = auth_header.split(' ')
         if auth_type.lower() == 'basic':
             decoded = base64.b64decode(encoded).decode('utf-8')
-            u, p = decoded.split(':', 1)
-            return u == ADMIN_USER and p == ADMIN_PASS
+            username, password = decoded.split(':', 1)
+            return username == ADMIN_USER and password == ADMIN_PASS
     except Exception:
         pass
     return False
@@ -92,136 +108,170 @@ def check_auth(request):
 def basic_auth_required(handler):
     async def wrapper(request):
         if not check_auth(request):
-            return web.Response(status=401,
+            return web.Response(
+                status=401,
                 headers={'WWW-Authenticate': 'Basic realm="IPTV Admin Paneli"'},
-                text="Yetkisiz erişim. Lütfen giriş yapın.")
+                text="Yetkisiz erişim. Lütfen giriş yapın."
+            )
         return await handler(request)
     return wrapper
-
-async def fetch_m3u8(session, url, timeout_sec=5.0):
-    """M3U8 içeriğini 5 dakika cache ile çeker."""
-    now = time.time()
-    if url in M3U8_CACHE:
-        content, ts, cached_elapsed = M3U8_CACHE[url]
-        if now - ts < M3U8_CACHE_DURATION:
-            return content, 200, cached_elapsed
-
-    start = time.time()
-    timeout = aiohttp.ClientTimeout(total=timeout_sec)
-    async with session.get(url, timeout=timeout) as response:
-        elapsed = time.time() - start
-        if response.status != 200:
-            return None, response.status, elapsed
-        content = await response.text()
-        M3U8_CACHE[url] = (content, now, elapsed)
-        return content, 200, elapsed
 
 async def check_url(session, url):
     """
     M3U8 URL'sini test eder.
-    Çözünürlük KULLANILMAZ. Sadece hız, bandwidth ve güvenilirlik skorlanır.
+    Önce çözünürlüğe göre kademeleme yapar (1080 / 720 / 480),
+    sonra her kademede "akıcılık" (hız + bandwidth + stabilite) skoruna bakar.
+    Yüksek çözünürlük ancak akıcıysa seçilir, aksi halde bir alt kademeye düşer.
     """
+    start_time = time.time()
     try:
-        content, status, elapsed_time = await fetch_m3u8(session, url, 5.0)
+        timeout = aiohttp.ClientTimeout(total=4.0)
+        async with session.get(url, timeout=timeout) as response:
+            elapsed_time = time.time() - start_time
+            if response.status != 200:
+                return {
+                    "url": url, "ok": False, "reason": f"HTTP {response.status}",
+                    "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
+                    "speed": elapsed_time
+                }
 
-        if status != 200:
-            return {"url": url, "ok": False, "reason": f"HTTP {status}",
-                    "score": 0, "speed": elapsed_time}
+            content = await response.text()
+            if "#EXTM3U" not in content:
+                return {
+                    "url": url, "ok": False, "reason": "Geçersiz M3U8",
+                    "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
+                    "speed": elapsed_time
+                }
 
-        if not content or "#EXTM3U" not in content:
-            return {"url": url, "ok": False, "reason": "Geçersiz M3U8",
-                    "score": 0, "speed": elapsed_time}
+            # Çözünürlük
+            resolutions = re.findall(r'RESOLUTION=(\d+)x(\d+)', content)
+            max_height = max((int(h) for _, h in resolutions), default=480)
 
-        # Manifest içindeki bandwidth bilgisi (varsa)
-        bandwidths = re.findall(r'BANDWIDTH=(\d+)', content)
-        max_bandwidth = max((int(b) for b in bandwidths), default=0)
+            # Bandwidth
+            bandwidths = re.findall(r'BANDWIDTH=(\d+)', content)
+            max_bandwidth = max((int(b) for b in bandwidths), default=0)
 
-        segment_count = len(re.findall(r'#EXTINF:', content))
-        has_target_duration = '#EXT-X-TARGETDURATION' in content
-        is_master = '#EXT-X-STREAM-INF' in content
+            # Güvenilirlik verileri
+            segment_count = len(re.findall(r'#EXTINF:', content))
+            has_target_duration = '#EXT-X-TARGETDURATION' in content
+            is_master = '#EXT-X-STREAM-INF' in content
 
-        # ── SKOR HESAPLAMA (0-100) ──
+            # Hız skoru
+            speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
 
-        # 1) Hız skoru (en önemli faktör)
-        # 0.3s → 92, 1s → 72, 2s → 44, 3.5s → 2
-        speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
+            # Bandwidth yeterlilik skoru
+            if max_bandwidth > 0:
+                if max_height >= 1080:
+                    expected_bw = 5000000
+                elif max_height >= 720:
+                    expected_bw = 2500000
+                else:
+                    expected_bw = 1000000
+                bandwidth_score = min((max_bandwidth / expected_bw) * 60.0, 100.0)
+            else:
+                bandwidth_score = 50.0
 
-        # 2) Bandwidth skoru
-        # 5 Mbps üstü mükemmel, 2.5 Mbps üstü iyi, 1 Mbps altı zayıf
-        if max_bandwidth >= 5000000:
-            bandwidth_score = 100.0
-        elif max_bandwidth >= 2500000:
-            bandwidth_score = 75.0
-        elif max_bandwidth >= 1000000:
-            bandwidth_score = 55.0
-        elif max_bandwidth > 0:
-            bandwidth_score = 35.0
-        else:
-            bandwidth_score = 50.0  # Bilgi yok, nötr
+            # Güvenilirlik skoru
+            reliability_score = 40.0
+            if segment_count > 0:
+                reliability_score += min(segment_count * 5.0, 30.0)
+            if has_target_duration:
+                reliability_score += 15.0
+            if is_master:
+                reliability_score += 15.0
+            reliability_score = min(reliability_score, 100.0)
 
-        # 3) Güvenilirlik skoru
-        reliability_score = 40.0
-        if segment_count > 0:
-            reliability_score += min(segment_count * 5.0, 30.0)
-        if has_target_duration:
-            reliability_score += 15.0
-        if is_master:
-            reliability_score += 15.0
-        reliability_score = min(reliability_score, 100.0)
+            # Akıcılık skoru (çözünürlükten bağımsız)
+            smoothness_score = (
+                speed_score       * 0.45 +
+                bandwidth_score   * 0.30 +
+                reliability_score * 0.25
+            )
 
-        # Ağırlıklı toplam
-        final_score = (
-            speed_score       * 0.50 +   # Hız en önemli
-            bandwidth_score   * 0.25 +
-            reliability_score * 0.25
-        )
+            # Kademeli çözünürlük kararı
+            SMOOTH_THRESHOLD = 70.0
+            if max_height >= 1080 and smoothness_score >= SMOOTH_THRESHOLD:
+                tier = 3
+            elif max_height >= 720 and smoothness_score >= SMOOTH_THRESHOLD:
+                tier = 2
+            elif max_height >= 480 and smoothness_score >= SMOOTH_THRESHOLD:
+                tier = 1
+            else:
+                tier = 0
 
-        return {
-            "url": url, "ok": True, "reason": "OK",
-            "score": final_score,
-            "speed": elapsed_time,
-            "speed_score": speed_score,
-            "bandwidth": max_bandwidth,
-            "bandwidth_score": bandwidth_score,
-            "reliability_score": reliability_score,
-            "segments": segment_count,
-            "is_master": is_master
-        }
+            final_score = (tier * 1000) + smoothness_score
+
+            return {
+                "url": url,
+                "ok": True,
+                "reason": "OK",
+                "score": final_score,
+                "tier": tier,
+                "resolution": max_height,
+                "bandwidth": max_bandwidth,
+                "smoothness": smoothness_score,
+                "speed": elapsed_time,
+                "speed_score": speed_score,
+                "bandwidth_score": bandwidth_score,
+                "reliability_score": reliability_score,
+                "segments": segment_count,
+                "is_master": is_master
+            }
     except asyncio.TimeoutError:
-        return {"url": url, "ok": False, "reason": "Timeout",
-                "score": 0, "speed": 5.0}
+        return {
+            "url": url, "ok": False, "reason": "Timeout",
+            "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
+            "speed": time.time() - start_time
+        }
     except Exception as e:
-        return {"url": url, "ok": False, "reason": f"Hata: {str(e)[:40]}",
-                "score": 0, "speed": 0}
+        return {
+            "url": url, "ok": False, "reason": f"Hata: {str(e)[:40]}",
+            "score": 0, "tier": 0, "resolution": 0, "smoothness": 0,
+            "speed": time.time() - start_time
+        }
 
 async def test_all_sources(channel_name, force=False):
+    """Bir kanalın tüm kaynaklarını test eder ve skorlarını cache'ler."""
     current_time = time.time()
+
     if not force and channel_name in SCORE_CACHE:
-        c = SCORE_CACHE[channel_name]
-        if current_time - c["time"] < CACHE_DURATION:
-            return c["results"]
+        cached = SCORE_CACHE[channel_name]
+        if current_time - cached["time"] < CACHE_DURATION:
+            return cached["results"]
+
     channels = load_channels()
     sources = channels.get(channel_name)
     if not sources:
         return []
+
     async with aiohttp.ClientSession() as session:
-        tasks = [check_url(session, u) for u in sources]
+        tasks = [check_url(session, url) for url in sources]
         results = await asyncio.gather(*tasks)
+
     results = [r for r in results if r is not None]
+
     SCORE_CACHE[channel_name] = {"time": current_time, "results": results}
+
+    # En iyi aktif URL'yi STREAM_CACHE'e yaz
     working = [r for r in results if r["ok"]]
     if working:
         working.sort(key=lambda x: x["score"], reverse=True)
-        STREAM_CACHE[channel_name] = {"url": working[0]["url"], "time": current_time,
-                                       "score": working[0]["score"]}
+        STREAM_CACHE[channel_name] = {
+            "url": working[0]["url"],
+            "time": current_time,
+            "score": working[0]["score"]
+        }
+
     return results
 
 async def get_working_stream(channel_name):
     current_time = time.time()
+
     if channel_name in STREAM_CACHE:
-        c = STREAM_CACHE[channel_name]
-        if current_time - c["time"] < CACHE_DURATION:
-            return c["url"]
+        cached_data = STREAM_CACHE[channel_name]
+        if current_time - cached_data["time"] < CACHE_DURATION:
+            return cached_data["url"]
+
     results = await test_all_sources(channel_name, force=True)
     working = [r for r in results if r["ok"]]
     if not working:
@@ -235,11 +285,14 @@ async def ping(request):
 async def handle_stream(request):
     channel_name = request.match_info.get('channel_name')
     channels = load_channels()
+    
     if channel_name not in channels:
         return web.Response(text="Böyle bir kanal tanımlı değil.", status=404)
+        
     working_url = await get_working_stream(channel_name)
     if not working_url:
         return web.Response(text=f"{channel_name} için şu an aktif yayın bulunamadı.", status=503)
+    
     raise web.HTTPFound(working_url)
 
 @basic_auth_required
@@ -248,59 +301,76 @@ async def admin_save(request):
     old_name = data.get('old_name', '').strip().lower()
     channel_name = data.get('channel_name', '').strip().lower()
     urls_raw = data.get('urls', '').strip()
+    
     if channel_name and urls_raw:
         urls = [u.strip() for u in urls_raw.replace(',', '\n').split('\n') if u.strip()]
         channels = load_channels()
+        
         if old_name and old_name != channel_name and old_name in channels:
             del channels[old_name]
-            STREAM_CACHE.pop(old_name, None)
-            SCORE_CACHE.pop(old_name, None)
+            if old_name in STREAM_CACHE:
+                del STREAM_CACHE[old_name]
+            if old_name in SCORE_CACHE:
+                del SCORE_CACHE[old_name]
+        
         channels[channel_name] = urls
         save_and_push_channels(channels)
-        STREAM_CACHE.pop(channel_name, None)
-        SCORE_CACHE.pop(channel_name, None)
+        
+        if channel_name in STREAM_CACHE:
+            del STREAM_CACHE[channel_name]
+        if channel_name in SCORE_CACHE:
+            del SCORE_CACHE[channel_name]
+            
     raise web.HTTPFound('/')
 
 @basic_auth_required
 async def admin_delete(request):
     channel_name = request.match_info.get('channel_name')
     channels = load_channels()
+    
     if channel_name in channels:
         del channels[channel_name]
         save_and_push_channels(channels)
-        STREAM_CACHE.pop(channel_name, None)
-        SCORE_CACHE.pop(channel_name, None)
+        if channel_name in STREAM_CACHE:
+            del STREAM_CACHE[channel_name]
+        if channel_name in SCORE_CACHE:
+            del SCORE_CACHE[channel_name]
+            
     raise web.HTTPFound('/')
 
 @basic_auth_required
 async def admin_clear_cache(request):
     STREAM_CACHE.clear()
     SCORE_CACHE.clear()
-    M3U8_CACHE.clear()
     raise web.HTTPFound('/')
 
 @basic_auth_required
 async def admin_test_channel(request):
+    """Belirli bir kanalın tüm linklerini test eder ve JSON döner."""
     channel_name = request.match_info.get('channel_name')
     channels = load_channels()
     if channel_name not in channels:
         return web.json_response({"error": "Kanal bulunamadı"}, status=404)
+
     results = await test_all_sources(channel_name, force=True)
+
     best_url = None
     working = [r for r in results if r["ok"]]
     if working:
         working.sort(key=lambda x: x["score"], reverse=True)
         best_url = working[0]["url"]
-    return web.json_response({"channel": channel_name, "best_url": best_url, "results": results})
+
+    return web.json_response({
+        "channel": channel_name,
+        "best_url": best_url,
+        "results": results
+    })
 
 @basic_auth_required
 async def dashboard(request):
     channels = load_channels()
     current_time = time.time()
     channels_json_esc = json.dumps(channels, ensure_ascii=False)
-
-    stream_cache_count = len(STREAM_CACHE)
-    m3u8_cache_count = len(M3U8_CACHE)
     
     html = f"""
     <!DOCTYPE html>
@@ -345,15 +415,12 @@ async def dashboard(request):
             .stat.good {{ background: #166534; color: #bbf7d0; }}
             .stat.mid {{ background: #854d0e; color: #fef08a; }}
             .stat.bad {{ background: #991b1b; color: #fecaca; }}
-            .score-badge {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px; }}
-            .score-high {{ background: #22c55e; color: #052e16; }}
-            .score-mid {{ background: #f59e0b; color: #431407; }}
-            .score-low {{ background: #6b7280; color: #0f172a; }}
-            .score-fail {{ background: #dc2626; color: #ffffff; }}
+            .tier-badge {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px; }}
+            .tier-3 {{ background: #22c55e; color: #052e16; }}
+            .tier-2 {{ background: #3b82f6; color: #0c1a3a; }}
+            .tier-1 {{ background: #f59e0b; color: #431407; }}
+            .tier-0 {{ background: #6b7280; color: #0f172a; }}
             .loading {{ color: #94a3b8; font-style: italic; padding: 10px; }}
-            .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }}
-            .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
-            .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
         </style>
         <script>
             const allChannels = {channels_json_esc};
@@ -384,26 +451,23 @@ async def dashboard(request):
                 const input = document.getElementById('searchInput').value.toLowerCase();
                 const table = document.getElementById('channelTable');
                 const trs = table.getElementsByTagName('tr');
+                
                 for (let i = 1; i < trs.length; i++) {{
                     const td = trs[i].getElementsByTagName('td')[0];
                     if (td) {{
-                        const t = td.textContent || td.innerText;
-                        trs[i].style.display = (t.toLowerCase().indexOf(input) > -1) ? "" : "none";
+                        const textValue = td.textContent || td.innerText;
+                        if (textValue.toLowerCase().indexOf(input) > -1) {{
+                            trs[i].style.display = "";
+                        }} else {{
+                            trs[i].style.display = "none";
+                        }}
                     }}
                 }}
             }}
 
-            function scoreBadge(score) {{
-                if (score >= 75) return "score-high";
-                if (score >= 55) return "score-mid";
-                return "score-low";
-            }}
-
-            function scoreLabel(score) {{
-                if (score >= 75) return "ÇOK İYİ ✅";
-                if (score >= 55) return "İYİ 👍";
-                if (score >= 35) return "ORTA ⚠️";
-                return "ZAYIF ⚠️";
+            function tierLabel(tier, resolution) {{
+                const labels = {{3: "1080p ✅", 2: "720p ✅", 1: "480p ✅", 0: "Zayıf ⚠️"}};
+                return labels[tier] + " (" + resolution + "p)";
             }}
 
             function statClass(value, good, mid) {{
@@ -415,7 +479,7 @@ async def dashboard(request):
             async function testChannel(name) {{
                 const container = document.getElementById('scores-' + name);
                 container.classList.add('open');
-                container.innerHTML = '<div class="loading">🔄 Linkler test ediliyor...</div>';
+                container.innerHTML = '<div class="loading">🔄 Linkler test ediliyor, lütfen bekleyin...</div>';
 
                 try {{
                     const res = await fetch('/admin/test/' + name);
@@ -427,35 +491,32 @@ async def dashboard(request):
                     }}
 
                     const sorted = data.results.slice().sort((a, b) => b.score - a.score);
-                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi. Skor = Hız (%50) + Bandwidth (%25) + Güvenilirlik (%25)</div>';
+                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi. En yüksek skorlu seçilir.</div>';
 
                     sorted.forEach((r, idx) => {{
                         const isBest = r.url === data.best_url;
                         const cssClass = !r.ok ? 'failed' : (isBest ? 'best' : '');
                         html += '<div class="score-row ' + cssClass + '">';
-                        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:6px;">';
+                        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">';
                         html += '<strong>#' + (idx+1) + ' ';
                         if (isBest) html += '🏆 SEÇİLDİ ';
                         if (!r.ok) html += '❌ ';
                         html += 'Skor: ' + r.score.toFixed(1) + '</strong>';
                         if (r.ok) {{
-                            html += '<span class="score-badge ' + scoreBadge(r.score) + '">' + scoreLabel(r.score) + '</span>';
+                            html += '<span class="tier-badge tier-' + r.tier + '">' + tierLabel(r.tier, r.resolution) + '</span>';
                         }} else {{
-                            html += '<span class="score-badge score-fail">' + r.reason + '</span>';
+                            html += '<span class="tier-badge tier-0">' + r.reason + '</span>';
                         }}
                         html += '</div>';
                         html += '<div class="score-url">' + r.url + '</div>';
                         if (r.ok) {{
                             html += '<div class="score-stats">';
-                            html += '<span class="stat ' + statClass(r.speed_score, 70, 50) + '">Hız: ' + (r.speed*1000).toFixed(0) + ' ms (' + r.speed_score.toFixed(0) + ')</span>';
-                            if (r.bandwidth > 0) {{
-                                html += '<span class="stat ' + statClass(r.bandwidth_score, 70, 50) + '">Bitrate: ' + (r.bandwidth/1000000).toFixed(2) + ' Mbps (' + r.bandwidth_score.toFixed(0) + ')</span>';
-                            }} else {{
-                                html += '<span class="stat">Bitrate: Bilinmiyor</span>';
-                            }}
-                            html += '<span class="stat ' + statClass(r.reliability_score, 70, 50) + '">Güvenilirlik: ' + r.reliability_score.toFixed(0) + '</span>';
+                            html += '<span class="stat ' + statClass(r.smoothness, 70, 50) + '">Akıcılık: ' + r.smoothness.toFixed(1) + '</span>';
+                            html += '<span class="stat ' + statClass(100 - r.speed*28, 70, 50) + '">Hız: ' + (r.speed*1000).toFixed(0) + ' ms</span>';
+                            html += '<span class="stat">Çözünürlük: ' + r.resolution + 'p</span>';
+                            if (r.bandwidth > 0) html += '<span class="stat">Bandwidth: ' + (r.bandwidth/1000000).toFixed(2) + ' Mbps</span>';
                             html += '<span class="stat">Segment: ' + r.segments + '</span>';
-                            if (r.is_master) html += '<span class="stat good">Master</span>';
+                            if (r.is_master) html += '<span class="stat good">Master Playlist</span>';
                             html += '</div>';
                         }}
                         html += '</div>';
@@ -480,24 +541,21 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Hız + Bandwidth + Güvenilirlik odaklı puanlama. Segment indirme yok, trafik minimum.</p>
-
-            <div class="stats-bar">
-                <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
-                <div class="stat-item"><strong>{stream_cache_count}</strong>Aktif Yayın (1 dk)</div>
-                <div class="stat-item"><strong>{m3u8_cache_count}</strong>M3U8 Cache (5 dk)</div>
-            </div>
+            <p class="subtitle">Kademeli çözünürlük seçimi (1080→720→480) + akıcılık odaklı skor sistemi.</p>
             
-            <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek temizlensin mi?')">🧹 Tüm Cache Temizle</a>
+            <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek (cache) temizlensin mi?')">🧹 Önbelleği (Cache) Anında Temizle</a>
 
             <div class="card">
                 <h3 id="form-title">Yeni Kanal Ekle</h3>
                 <form action="/admin/save" method="POST">
                     <input type="hidden" id="old_name" name="old_name" value="">
+                    
                     <label>Kanal Adı (Örn: showtv, sportv):</label>
                     <input type="text" id="channel_name" name="channel_name" required placeholder="sportv">
+                    
                     <label>M3U8 Linkleri (Alt alta veya virgülle ayırarak yazın):</label>
                     <textarea id="urls" name="urls" rows="3" required placeholder="https://ornek.com/kanal1.m3u8&#10;https://ornek.com/kanal2.m3u8"></textarea>
+                    
                     <button type="submit" id="submit-btn">Kanalı Ekle ve GitHub'a Kaydet</button>
                     <button type="button" id="cancel-btn" class="btn-secondary" onclick="resetForm()">İptal</button>
                 </form>
@@ -522,13 +580,14 @@ async def dashboard(request):
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
         cache_info = STREAM_CACHE.get(name)
+        
         if cache_info and (current_time - cache_info["time"] < CACHE_DURATION):
             score_text = f" (Skor: {cache_info.get('score', 0):.1f})"
-            status_html = '<span class="badge-cached">Önbellekte Aktif</span>'
+            status_html = f'<span class="badge-cached">Önbellekte Aktif</span>'
             active_url = cache_info["url"] + score_text
         else:
             status_html = '<span class="badge-inactive">Test Bekliyor</span>'
-            active_url = f"{len(sources)} kaynak tanımlı - test için 'Skorlar' tıkla"
+            active_url = f"{len(sources)} kaynak tanımlı - test için 'Skorları Göster' tıkla"
         
         html += f"""
                         <tr>
