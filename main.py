@@ -6,6 +6,7 @@ import os
 import re
 import time
 import base64
+from html import escape
 
 CONFIG_FILE = "channels.json"
 STREAM_CACHE = {}
@@ -13,15 +14,27 @@ SCORE_CACHE = {}
 M3U8_CACHE = {}
 CACHE_DURATION = 60
 M3U8_CACHE_DURATION = 300          # 5 dakika M3U8 cache
+MAX_M3U8_CACHE = 300               # M3U8 cache üst sınırı
+
+# Kanal listesi bellek önbelleği (GitHub isteklerini azaltır)
+_CHANNELS_CACHE = {"data": None, "time": 0}
+CHANNELS_CACHE_TTL = 30
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
 
-def load_channels():
+
+# ─────────────────────────────────────────────
+# Kanal yükleme / kaydetme
+# ─────────────────────────────────────────────
+
+def _load_channels_uncached():
+    """GitHub + yerel dosyadan kanalları okur, birleştirir, yerel dosyaya yazar."""
     local_channels = {}
     github_channels = {}
+
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -30,11 +43,15 @@ def load_channels():
                     local_channels = {}
         except Exception:
             pass
+
     if GITHUB_TOKEN and GITHUB_REPO:
         try:
             import requests
             url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CONFIG_FILE}"
-            headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+            headers = {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json",
+            }
             res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
                 fd = res.json()
@@ -45,42 +62,80 @@ def load_channels():
                         github_channels = {}
         except Exception as e:
             print(f"GitHub Load Error: {e}")
+
     merged = {**local_channels, **github_channels}
+
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(merged, f, ensure_ascii=False, indent=4)
     except Exception:
         pass
+
     return merged
 
+
+def load_channels(force=False):
+    """Bellek önbellekli kanal yükleme. 30s TTL."""
+    now = time.time()
+    if not force and _CHANNELS_CACHE["data"] is not None \
+       and now - _CHANNELS_CACHE["time"] < CHANNELS_CACHE_TTL:
+        return _CHANNELS_CACHE["data"]
+
+    merged = _load_channels_uncached()
+    _CHANNELS_CACHE["data"] = merged
+    _CHANNELS_CACHE["time"] = now
+    return merged
+
+
 def save_and_push_channels(channels):
+    """Kanalları yerel dosyaya ve GitHub'a yazar. Birleştirme YAPMAZ."""
     try:
-        current = load_channels()
-        current.update(channels)
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(current, f, ensure_ascii=False, indent=4)
-        if GITHUB_TOKEN and GITHUB_REPO:
+            json.dump(channels, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"Local Save Error: {e}")
+
+    # Bellek önbelleğini güncelle
+    _CHANNELS_CACHE["data"] = channels
+    _CHANNELS_CACHE["time"] = time.time()
+
+    if GITHUB_TOKEN and GITHUB_REPO:
+        try:
             import requests
             url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CONFIG_FILE}"
-            headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
-            res = requests.get(url, headers=headers)
+            headers = {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json",
+            }
+            res = requests.get(url, headers=headers, timeout=10)
             sha = res.json().get("sha") if res.status_code == 200 else None
-            cs = json.dumps(current, ensure_ascii=False, indent=4)
+
+            cs = json.dumps(channels, ensure_ascii=False, indent=4)
             ce = base64.b64encode(cs.encode("utf-8")).decode("utf-8")
-            data = {"message": "Admin panelinden channels.json güncellendi ve senkronize edildi",
-                    "content": ce, "sha": sha}
-            if not sha:
-                data.pop("sha")
-            requests.put(url, headers=headers, json=data)
-    except Exception as e:
-        print(f"GitHub Sync Error: {e}")
+            data = {
+                "message": "Admin panelinden channels.json güncellendi ve senkronize edildi",
+                "content": ce,
+            }
+            if sha:
+                data["sha"] = sha
+
+            put_res = requests.put(url, headers=headers, json=data, timeout=15)
+            if put_res.status_code not in (200, 201):
+                print(f"GitHub Push Error: {put_res.status_code} {put_res.text[:200]}")
+        except Exception as e:
+            print(f"GitHub Sync Error: {e}")
+
+
+# ─────────────────────────────────────────────
+# Yetkilendirme
+# ─────────────────────────────────────────────
 
 def check_auth(request):
     auth_header = request.headers.get('Authorization')
     if not auth_header:
         return False
     try:
-        auth_type, encoded = auth_header.split(' ')
+        auth_type, encoded = auth_header.split(None, 1)
         if auth_type.lower() == 'basic':
             decoded = base64.b64decode(encoded).decode('utf-8')
             u, p = decoded.split(':', 1)
@@ -89,14 +144,22 @@ def check_auth(request):
         pass
     return False
 
+
 def basic_auth_required(handler):
     async def wrapper(request):
         if not check_auth(request):
-            return web.Response(status=401,
+            return web.Response(
+                status=401,
                 headers={'WWW-Authenticate': 'Basic realm="IPTV Admin Paneli"'},
-                text="Yetkisiz erişim. Lütfen giriş yapın.")
+                text="Yetkisiz erişim. Lütfen giriş yapın.",
+            )
         return await handler(request)
     return wrapper
+
+
+# ─────────────────────────────────────────────
+# M3U8 çekme / test
+# ─────────────────────────────────────────────
 
 async def fetch_m3u8(session, url, timeout_sec=5.0):
     """M3U8 içeriğini 5 dakika cache ile çeker."""
@@ -108,13 +171,25 @@ async def fetch_m3u8(session, url, timeout_sec=5.0):
 
     start = time.time()
     timeout = aiohttp.ClientTimeout(total=timeout_sec)
-    async with session.get(url, timeout=timeout) as response:
+    try:
+        async with session.get(url, timeout=timeout) as response:
+            elapsed = time.time() - start
+            if response.status != 200:
+                return None, response.status, elapsed
+            content = await response.text()
+    except Exception:
         elapsed = time.time() - start
-        if response.status != 200:
-            return None, response.status, elapsed
-        content = await response.text()
-        M3U8_CACHE[url] = (content, now, elapsed)
-        return content, 200, elapsed
+        raise
+
+    # Cache üst sınırı temizliği
+    if len(M3U8_CACHE) >= MAX_M3U8_CACHE:
+        oldest = sorted(M3U8_CACHE.items(), key=lambda x: x[1][1])[:80]
+        for k, _ in oldest:
+            M3U8_CACHE.pop(k, None)
+
+    M3U8_CACHE[url] = (content, now, elapsed)
+    return content, 200, elapsed
+
 
 async def check_url(session, url):
     """
@@ -125,14 +200,17 @@ async def check_url(session, url):
         content, status, elapsed_time = await fetch_m3u8(session, url, 5.0)
 
         if status != 200:
-            return {"url": url, "ok": False, "reason": f"HTTP {status}",
-                    "score": 0, "speed": elapsed_time}
+            return {
+                "url": url, "ok": False, "reason": f"HTTP {status}",
+                "score": 0, "speed": elapsed_time,
+            }
 
         if not content or "#EXTM3U" not in content:
-            return {"url": url, "ok": False, "reason": "Geçersiz M3U8",
-                    "score": 0, "speed": elapsed_time}
+            return {
+                "url": url, "ok": False, "reason": "Geçersiz M3U8",
+                "score": 0, "speed": elapsed_time,
+            }
 
-        # Manifest içindeki bandwidth bilgisi (varsa)
         bandwidths = re.findall(r'BANDWIDTH=(\d+)', content)
         max_bandwidth = max((int(b) for b in bandwidths), default=0)
 
@@ -140,14 +218,10 @@ async def check_url(session, url):
         has_target_duration = '#EXT-X-TARGETDURATION' in content
         is_master = '#EXT-X-STREAM-INF' in content
 
-        # ── SKOR HESAPLAMA (0-100) ──
-
-        # 1) Hız skoru (en önemli faktör)
-        # 0.3s → 92, 1s → 72, 2s → 44, 3.5s → 2
+        # 1) Hız skoru
         speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
 
         # 2) Bandwidth skoru
-        # 5 Mbps üstü mükemmel, 2.5 Mbps üstü iyi, 1 Mbps altı zayıf
         if max_bandwidth >= 5000000:
             bandwidth_score = 100.0
         elif max_bandwidth >= 2500000:
@@ -169,9 +243,8 @@ async def check_url(session, url):
             reliability_score += 15.0
         reliability_score = min(reliability_score, 100.0)
 
-        # Ağırlıklı toplam
         final_score = (
-            speed_score       * 0.50 +   # Hız en önemli
+            speed_score       * 0.50 +
             bandwidth_score   * 0.25 +
             reliability_score * 0.25
         )
@@ -185,14 +258,19 @@ async def check_url(session, url):
             "bandwidth_score": bandwidth_score,
             "reliability_score": reliability_score,
             "segments": segment_count,
-            "is_master": is_master
+            "is_master": is_master,
         }
     except asyncio.TimeoutError:
-        return {"url": url, "ok": False, "reason": "Timeout",
-                "score": 0, "speed": 5.0}
+        return {
+            "url": url, "ok": False, "reason": "Timeout",
+            "score": 0, "speed": 5.0,
+        }
     except Exception as e:
-        return {"url": url, "ok": False, "reason": f"Hata: {str(e)[:40]}",
-                "score": 0, "speed": 0}
+        return {
+            "url": url, "ok": False, "reason": f"Hata: {str(e)[:40]}",
+            "score": 0, "speed": 0,
+        }
+
 
 async def test_all_sources(channel_name, force=False):
     current_time = time.time()
@@ -200,21 +278,32 @@ async def test_all_sources(channel_name, force=False):
         c = SCORE_CACHE[channel_name]
         if current_time - c["time"] < CACHE_DURATION:
             return c["results"]
+
     channels = load_channels()
     sources = channels.get(channel_name)
     if not sources:
         return []
+
     async with aiohttp.ClientSession() as session:
         tasks = [check_url(session, u) for u in sources]
         results = await asyncio.gather(*tasks)
+
     results = [r for r in results if r is not None]
     SCORE_CACHE[channel_name] = {"time": current_time, "results": results}
+
     working = [r for r in results if r["ok"]]
     if working:
         working.sort(key=lambda x: x["score"], reverse=True)
-        STREAM_CACHE[channel_name] = {"url": working[0]["url"], "time": current_time,
-                                       "score": working[0]["score"]}
+        STREAM_CACHE[channel_name] = {
+            "url": working[0]["url"],
+            "time": current_time,
+            "score": working[0]["score"],
+        }
+    else:
+        STREAM_CACHE.pop(channel_name, None)
+
     return results
+
 
 async def get_working_stream(channel_name):
     current_time = time.time()
@@ -222,6 +311,7 @@ async def get_working_stream(channel_name):
         c = STREAM_CACHE[channel_name]
         if current_time - c["time"] < CACHE_DURATION:
             return c["url"]
+
     results = await test_all_sources(channel_name, force=True)
     working = [r for r in results if r["ok"]]
     if not working:
@@ -229,18 +319,30 @@ async def get_working_stream(channel_name):
     working.sort(key=lambda x: x["score"], reverse=True)
     return working[0]["url"]
 
+
+# ─────────────────────────────────────────────
+# HTTP handler'ları
+# ─────────────────────────────────────────────
+
 async def ping(request):
     return web.Response(text="OK", status=200)
 
+
 async def handle_stream(request):
-    channel_name = request.match_info.get('channel_name')
+    channel_name = request.match_info.get('channel_name', '').strip().lower()
     channels = load_channels()
     if channel_name not in channels:
         return web.Response(text="Böyle bir kanal tanımlı değil.", status=404)
+
     working_url = await get_working_stream(channel_name)
     if not working_url:
-        return web.Response(text=f"{channel_name} için şu an aktif yayın bulunamadı.", status=503)
+        return web.Response(
+            text=f"{channel_name} için şu an aktif yayın bulunamadı.",
+            status=503,
+        )
+    # 302 yönlendirme — video akışı Render'dan geçmez, trafik minimum
     raise web.HTTPFound(working_url)
+
 
 @basic_auth_required
 async def admin_save(request):
@@ -248,29 +350,41 @@ async def admin_save(request):
     old_name = data.get('old_name', '').strip().lower()
     channel_name = data.get('channel_name', '').strip().lower()
     urls_raw = data.get('urls', '').strip()
+
     if channel_name and urls_raw:
         urls = [u.strip() for u in urls_raw.replace(',', '\n').split('\n') if u.strip()]
         channels = load_channels()
+
         if old_name and old_name != channel_name and old_name in channels:
             del channels[old_name]
             STREAM_CACHE.pop(old_name, None)
             SCORE_CACHE.pop(old_name, None)
+
         channels[channel_name] = urls
-        save_and_push_channels(channels)
         STREAM_CACHE.pop(channel_name, None)
         SCORE_CACHE.pop(channel_name, None)
+
+        # Senkron GitHub çağrısını executor'da çalıştır (event loop blokajını önle)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, save_and_push_channels, channels)
+
     raise web.HTTPFound('/')
+
 
 @basic_auth_required
 async def admin_delete(request):
-    channel_name = request.match_info.get('channel_name')
+    channel_name = request.match_info.get('channel_name', '').strip().lower()
     channels = load_channels()
     if channel_name in channels:
         del channels[channel_name]
-        save_and_push_channels(channels)
         STREAM_CACHE.pop(channel_name, None)
         SCORE_CACHE.pop(channel_name, None)
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, save_and_push_channels, channels)
+
     raise web.HTTPFound('/')
+
 
 @basic_auth_required
 async def admin_clear_cache(request):
@@ -279,19 +393,27 @@ async def admin_clear_cache(request):
     M3U8_CACHE.clear()
     raise web.HTTPFound('/')
 
+
 @basic_auth_required
 async def admin_test_channel(request):
-    channel_name = request.match_info.get('channel_name')
+    channel_name = request.match_info.get('channel_name', '').strip().lower()
     channels = load_channels()
     if channel_name not in channels:
         return web.json_response({"error": "Kanal bulunamadı"}, status=404)
+
     results = await test_all_sources(channel_name, force=True)
     best_url = None
     working = [r for r in results if r["ok"]]
     if working:
         working.sort(key=lambda x: x["score"], reverse=True)
         best_url = working[0]["url"]
-    return web.json_response({"channel": channel_name, "best_url": best_url, "results": results})
+
+    return web.json_response({
+        "channel": channel_name,
+        "best_url": best_url,
+        "results": results,
+    })
+
 
 @basic_auth_required
 async def dashboard(request):
@@ -301,7 +423,7 @@ async def dashboard(request):
 
     stream_cache_count = len(STREAM_CACHE)
     m3u8_cache_count = len(M3U8_CACHE)
-    
+
     html = f"""
     <!DOCTYPE html>
     <html lang="tr">
@@ -357,10 +479,10 @@ async def dashboard(request):
         </style>
         <script>
             const allChannels = {channels_json_esc};
-            
+
             function editChannel(name) {{
                 const urls = allChannels[name];
-                if(urls) {{
+                if (urls) {{
                     document.getElementById('old_name').value = name;
                     document.getElementById('channel_name').value = name;
                     document.getElementById('urls').value = urls.join('\\n');
@@ -370,7 +492,7 @@ async def dashboard(request):
                     window.scrollTo({{ top: 0, behavior: 'smooth' }});
                 }}
             }}
-            
+
             function resetForm() {{
                 document.getElementById('old_name').value = "";
                 document.getElementById('channel_name').value = "";
@@ -379,7 +501,7 @@ async def dashboard(request):
                 document.getElementById('submit-btn').innerText = "Kanalı Ekle ve GitHub'a Kaydet";
                 document.getElementById('cancel-btn').style.display = "none";
             }}
-            
+
             function filterChannels() {{
                 const input = document.getElementById('searchInput').value.toLowerCase();
                 const table = document.getElementById('channelTable');
@@ -418,7 +540,7 @@ async def dashboard(request):
                 container.innerHTML = '<div class="loading">🔄 Linkler test ediliyor...</div>';
 
                 try {{
-                    const res = await fetch('/admin/test/' + name);
+                    const res = await fetch('/admin/test/' + encodeURIComponent(name));
                     const data = await res.json();
 
                     if (!data.results || data.results.length === 0) {{
@@ -487,7 +609,7 @@ async def dashboard(request):
                 <div class="stat-item"><strong>{stream_cache_count}</strong>Aktif Yayın (1 dk)</div>
                 <div class="stat-item"><strong>{m3u8_cache_count}</strong>M3U8 Cache (5 dk)</div>
             </div>
-            
+
             <a href="/admin/clear-cache" class="btn-action btn-clear" onclick="return confirm('Tüm önbellek temizlensin mi?')">🧹 Tüm Cache Temizle</a>
 
             <div class="card">
@@ -517,36 +639,39 @@ async def dashboard(request):
                     </thead>
                     <tbody>
     """
-    
+
     for name, sources in channels.items():
+        safe_name_html = escape(name)
+        safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
+
         cache_info = STREAM_CACHE.get(name)
         if cache_info and (current_time - cache_info["time"] < CACHE_DURATION):
             score_text = f" (Skor: {cache_info.get('score', 0):.1f})"
             status_html = '<span class="badge-cached">Önbellekte Aktif</span>'
-            active_url = cache_info["url"] + score_text
+            active_url = escape(cache_info["url"] + score_text)
         else:
             status_html = '<span class="badge-inactive">Test Bekliyor</span>'
             active_url = f"{len(sources)} kaynak tanımlı - test için 'Skorlar' tıkla"
-        
+
         html += f"""
                         <tr>
-                            <td><strong>{name}</strong></td>
+                            <td><strong>{safe_name_html}</strong></td>
                             <td>{status_html}</td>
                             <td>
-                                <a href="{play_link}" target="_blank">{play_link}</a><br>
+                                <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
                                 <small style="color: #94a3b8; word-break: break-all;">{active_url}</small>
-                                <div id="scores-{name}" class="score-detail"></div>
+                                <div id="scores-{safe_name_html}" class="score-detail"></div>
                             </td>
                             <td>
-                                <button class="btn-test" onclick="toggleScores('{name}')">📊 Skorlar</button>
-                                <button class="btn-warning" onclick="editChannel('{name}')">Düzenle</button>
-                                <a href="{delete_link}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
+                                <button class="btn-test" onclick='toggleScores({safe_name_js})'>📊 Skorlar</button>
+                                <button class="btn-warning" onclick='editChannel({safe_name_js})'>Düzenle</button>
+                                <a href="{escape(delete_link)}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
                             </td>
                         </tr>
         """
-        
+
     html += """
                     </tbody>
                 </table>
@@ -556,6 +681,11 @@ async def dashboard(request):
     </html>
     """
     return web.Response(text=html, content_type='text/html')
+
+
+# ─────────────────────────────────────────────
+# Uygulama
+# ─────────────────────────────────────────────
 
 app = web.Application()
 app.router.add_get('/play/{channel_name}', handle_stream)
