@@ -9,9 +9,6 @@
         "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/35111504916c34560a3894",
         "http://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/962169494c61eb5a2ee2f"
     ],
-    "beinsport1sd": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/143239535a2e3c23c1d16"
-    ],
     "gurme": [
         "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/361703541447c2d8cea904",
         "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/35832308581a7336e4ddeb",
@@ -71,5 +68,12 @@
   ],
   "beinsportsfeedozelfeedyayin": [
     "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1453692314f52730c50395"
+  ],
+    "beinsports4kfeedkutu": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/267105889a25a483e5e80"
+  ],
+    "beinsports4kfeeduydu": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1536730627bbf8f95ca477"
   ]
+    
 }
