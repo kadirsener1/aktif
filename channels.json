@@ -27,52 +27,49 @@
         "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1514492628e6d09b31660c",
         "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/10783553250ea885deefe4"
     ],
-    "bein1feed720p": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1363827223a1c98515d612"
-    ],
-    "bein1sd360p": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/3692337241ec1b0872b06e"
-    ],
-    "beinsports1": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/300113394ceebba66c8ad"
-    ],
-    "beinsports1720p": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/38404756531618c87fcc66"
-    ],
-    "beinsports1720pfeed": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/22330664333ebb4acbb6ab"
-    ],
-    "beinsports1liveduringeventsonly": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/342898470360b159ef8301"
-    ],
-    "beinsports1plus": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2576216897d1c2b14af4e9"
-    ],
-    "beinsports150fps": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/13524210538e192d878d20"
-    ],
-    "beinsports1feed": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2729088606df69156b1eda"
-    ],
-    "beinsports1h265": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/24034250314fd9aa349685"
-    ],
-    "beinsports1hdturkey": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/5934938605e361d7e0ff0"
-    ],
-    "beinsports720pfeed": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/499485497d6131f47417d"
-    ],
-    "beinsports8kfeed": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2113462398d8dd57a8ea73"
-    ],
-    "beinsportsfeedozelfeedyayin": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1453692314f52730c50395"
-    ],
-    "beinsports4kfeedkutu": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/267105889a25a483e5e80"
-    ],
-    "beinsports4kfeeduydu": [
-        "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1536730627bbf8f95ca477"
-    ]
+  "beinsport1sd": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/143239535a2e3c23c1d16"
+  ],
+  "bein1feed720p": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1363827223a1c98515d612"
+  ],
+  "bein1sd360p": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/3692337241ec1b0872b06e"
+  ],
+  "beinsports1": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/300113394ceebba66c8ad"
+  ],
+  "beinsports1720p": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/38404756531618c87fcc66"
+  ],
+  "beinsports1720pfeed": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/22330664333ebb4acbb6ab"
+  ],
+  "beinsports1liveduringeventsonly": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/342898470360b159ef8301"
+  ],
+  "beinsports1plus": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2576216897d1c2b14af4e9"
+  ],
+  "beinsports150fps": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/13524210538e192d878d20"
+  ],
+  "beinsports1feed": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2729088606df69156b1eda"
+  ],
+  "beinsports1h265": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/24034250314fd9aa349685"
+  ],
+  "beinsports1hdturkey": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/5934938605e361d7e0ff0"
+  ],
+  "beinsports720pfeed": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/499485497d6131f47417d"
+  ],
+  "beinsports8kfeed": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/2113462398d8dd57a8ea73"
+  ],
+  "beinsportsfeedozelfeedyayin": [
+    "https://vavoorender-vuzs.onrender.com/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/1453692314f52730c50395"
+  ]
 }
