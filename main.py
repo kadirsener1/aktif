@@ -51,10 +51,9 @@ def load_channels():
             print(f"GitHub Load Error: {e}")
 
     # 3. İki kaynağı birleştir (Merge): GitHub ve Yerel verileri harmanla (Veri kaybını önlemek için)
-    # GitHub önceliklidir, ancak yerelde olup GitHub'da olmayan yeni eklemeler silinmez.
     merged_channels = {**local_channels, **github_channels}
 
-    # Birleştirilmiş güncel hali yerel diske de yazıp eşitleyelفظ
+    # Birleştirilmiş güncel hali yerel diske de yazıp eşitle
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(merged_channels, f, ensure_ascii=False, indent=4)
@@ -65,9 +64,7 @@ def load_channels():
 
 def save_and_push_channels(channels):
     try:
-        # Önce mevcut GitHub verisini çekip üzerine güvenli ekleme yapalım (Veri kaybı olmasın)
         current_channels = load_channels()
-        # Gönderilen güncel sözlüğü mevcutla güncelle
         current_channels.update(channels)
 
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -140,7 +137,6 @@ async def check_url(session, url):
                     else:
                         max_height = 720  # Çözünürlük bilgisi yoksa orta kalite kabul edilir
                     
-                    # Tüm izleyicileri koruyan hız ve stabilite dengeli formül
                     stability_score = max_height / (elapsed_time * 3.0 + 0.1)
                     return (url, stability_score)
     except Exception:
@@ -187,11 +183,59 @@ async def handle_stream(request):
     if channel_name not in channels:
         return web.Response(text="Böyle bir kanal tanımlı değil.", status=404)
         
-    working_url = await get_working_stream(channel_name)
-    if not working_url:
-        return web.Response(text=f"{channel_name} için şu an aktif yayın bulunamadı.", status=503)
+    response = web.StreamResponse()
+    await response.prepare(request)
     
-    raise web.HTTPFound(working_url)
+    failed_urls = set()
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            sources = channels.get(channel_name, [])
+            available_sources = [s for s in sources if s not in failed_urls]
+            
+            if not available_sources:
+                break
+                
+            current_time = time.time()
+            working_url = None
+            if channel_name in STREAM_CACHE:
+                cached = STREAM_CACHE[channel_name]
+                if current_time - cached["time"] < CACHE_DURATION and cached["url"] not in failed_urls:
+                    working_url = cached["url"]
+            
+            if not working_url:
+                tasks = [check_url(session, url) for url in available_sources]
+                results = await asyncio.gather(*tasks)
+                working_streams = [res for res in results if res is not None]
+                
+                if not working_streams:
+                    break
+                    
+                working_streams.sort(key=lambda x: x[1], reverse=True)
+                working_url = working_streams[0][0]
+                
+                STREAM_CACHE[channel_name] = {
+                    "url": working_url,
+                    "time": current_time
+                }
+                
+            try:
+                async with session.get(working_url, timeout=10) as upstream:
+                    if upstream.status != 200:
+                        failed_urls.add(working_url)
+                        STREAM_CACHE.pop(channel_name, None)
+                        continue
+                        
+                    async for chunk in upstream.content.iter_chunked(8192):
+                        await response.write(chunk)
+            except Exception:
+                failed_urls.add(working_url)
+                STREAM_CACHE.pop(channel_name, None)
+                continue
+                
+            break
+            
+    return response
 
 @basic_auth_required
 async def admin_save(request):
