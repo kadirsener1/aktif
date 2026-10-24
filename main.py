@@ -13,10 +13,9 @@ STREAM_CACHE = {}
 SCORE_CACHE = {}
 M3U8_CACHE = {}
 CACHE_DURATION = 60
-M3U8_CACHE_DURATION = 300          # 5 dakika M3U8 cache
-MAX_M3U8_CACHE = 300               # M3U8 cache üst sınırı
+M3U8_CACHE_DURATION = 300
+MAX_M3U8_CACHE = 300
 
-# Kanal listesi bellek önbelleği (GitHub isteklerini azaltır)
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
 
@@ -31,7 +30,6 @@ ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
 # ─────────────────────────────────────────────
 
 def _load_channels_uncached():
-    """GitHub + yerel dosyadan kanalları okur, birleştirir, yerel dosyaya yazar."""
     local_channels = {}
     github_channels = {}
 
@@ -75,7 +73,6 @@ def _load_channels_uncached():
 
 
 def load_channels(force=False):
-    """Bellek önbellekli kanal yükleme. 30s TTL."""
     now = time.time()
     if not force and _CHANNELS_CACHE["data"] is not None \
        and now - _CHANNELS_CACHE["time"] < CHANNELS_CACHE_TTL:
@@ -88,14 +85,12 @@ def load_channels(force=False):
 
 
 def save_and_push_channels(channels):
-    """Kanalları yerel dosyaya ve GitHub'a yazar. Birleştirme YAPMAZ."""
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(channels, f, ensure_ascii=False, indent=4)
     except Exception as e:
         print(f"Local Save Error: {e}")
 
-    # Bellek önbelleğini güncelle
     _CHANNELS_CACHE["data"] = channels
     _CHANNELS_CACHE["time"] = time.time()
 
@@ -158,11 +153,10 @@ def basic_auth_required(handler):
 
 
 # ─────────────────────────────────────────────
-# M3U8 çekme / test
+# M3U8 çekme
 # ─────────────────────────────────────────────
 
 async def fetch_m3u8(session, url, timeout_sec=5.0):
-    """M3U8 içeriğini 5 dakika cache ile çeker."""
     now = time.time()
     if url in M3U8_CACHE:
         content, ts, cached_elapsed = M3U8_CACHE[url]
@@ -181,7 +175,6 @@ async def fetch_m3u8(session, url, timeout_sec=5.0):
         elapsed = time.time() - start
         raise
 
-    # Cache üst sınırı temizliği
     if len(M3U8_CACHE) >= MAX_M3U8_CACHE:
         oldest = sorted(M3U8_CACHE.items(), key=lambda x: x[1][1])[:80]
         for k, _ in oldest:
@@ -191,10 +184,107 @@ async def fetch_m3u8(session, url, timeout_sec=5.0):
     return content, 200, elapsed
 
 
+# ─────────────────────────────────────────────
+# Yapı sağlığı kontrolü
+# ─────────────────────────────────────────────
+
+def analyze_manifest_health(content):
+    """
+    M3U8 içeriğinin yapısal sağlığını analiz eder.
+    Dönüş: (health_score: float 0-100, details: dict, is_playable: bool)
+    """
+    details = {
+        "has_target_duration": False,
+        "segment_count": 0,
+        "segment_durations_consistent": False,
+        "has_media_sequence": False,
+        "is_master": False,
+        "is_live": False,
+        "reasons": [],
+    }
+
+    # Temel doğrulama
+    if "#EXTM3U" not in content:
+        details["reasons"].append("EXTM3U başlığı yok")
+        return 0.0, details, False
+
+    has_target_duration = "#EXT-X-TARGETDURATION" in content
+    details["has_target_duration"] = has_target_duration
+
+    is_master = "#EXT-X-STREAM-INF" in content
+    details["is_master"] = is_master
+
+    # Segment sürelerini çıkar
+    durations = re.findall(r'#EXTINF:\s*([\d.]+)', content)
+    try:
+        durations = [float(d) for d in durations]
+    except ValueError:
+        durations = []
+
+    segment_count = len(durations)
+    details["segment_count"] = segment_count
+
+    # Süre tutarlılığı: ortalama ve standart sapma
+    consistent = False
+    if len(durations) >= 3:
+        avg = sum(durations) / len(durations)
+        if avg > 0:
+            variance = sum((d - avg) ** 2 for d in durations) / len(durations)
+            std_dev = variance ** 0.5
+            # Standart sapma ortalamanın %30'undan küçükse tutarlı say
+            if std_dev / avg < 0.30:
+                consistent = True
+    details["segment_durations_consistent"] = consistent
+
+    details["has_media_sequence"] = "#EXT-X-MEDIA-SEQUENCE" in content
+    details["is_live"] = "#EXT-X-ENDLIST" not in content
+
+    # ── SAĞLIK SKORU ──
+    health = 0.0
+    if has_target_duration:
+        health += 20
+    else:
+        details["reasons"].append("TARGETDURATION eksik")
+
+    if segment_count >= 3:
+        health += 20
+        if segment_count >= 6:
+            health += 10
+    else:
+        details["reasons"].append(f"Segment sayısı az ({segment_count})")
+
+    if consistent:
+        health += 20
+    elif segment_count >= 3:
+        details["reasons"].append("Segment süreleri tutarsız")
+
+    if details["has_media_sequence"]:
+        health += 10
+
+    if is_master:
+        health += 10
+
+    if details["is_live"]:
+        health += 10
+
+    health = min(health, 100.0)
+
+    # Oynatılabilirlik: master değilse ve segment varsa oynatılabilir
+    # Master ise alt playlist'e yönlendirir, oynatıcı halleder
+    is_playable = is_master or segment_count > 0
+
+    return health, details, is_playable
+
+
+# ─────────────────────────────────────────────
+# URL testi
+# ─────────────────────────────────────────────
+
 async def check_url(session, url):
     """
     M3U8 URL'sini test eder.
-    Çözünürlük KULLANILMAZ. Sadece hız, bandwidth ve güvenilirlik skorlanır.
+    Skor = Hız (%60) + Yapı Sağlığı (%40)
+    Yapı sağlığı < 40 ise URL elenir (oynatılamaz kabul edilir).
     """
     try:
         content, status, elapsed_time = await fetch_m3u8(session, url, 5.0)
@@ -205,60 +295,48 @@ async def check_url(session, url):
                 "score": 0, "speed": elapsed_time,
             }
 
-        if not content or "#EXTM3U" not in content:
+        if not content:
             return {
-                "url": url, "ok": False, "reason": "Geçersiz M3U8",
+                "url": url, "ok": False, "reason": "Boş yanıt",
                 "score": 0, "speed": elapsed_time,
             }
 
-        bandwidths = re.findall(r'BANDWIDTH=(\d+)', content)
-        max_bandwidth = max((int(b) for b in bandwidths), default=0)
+        # Yapı sağlığı analizi
+        health_score, details, is_playable = analyze_manifest_health(content)
 
-        segment_count = len(re.findall(r'#EXTINF:', content))
-        has_target_duration = '#EXT-X-TARGETDURATION' in content
-        is_master = '#EXT-X-STREAM-INF' in content
+        if not is_playable:
+            return {
+                "url": url, "ok": False,
+                "reason": "Oynatılamaz manifest",
+                "score": 0, "speed": elapsed_time,
+                "health": health_score,
+                "health_details": details,
+            }
 
-        # 1) Hız skoru
+        if health_score < 40:
+            reason = "Yapı sağlığı düşük"
+            if details["reasons"]:
+                reason += ": " + ", ".join(details["reasons"][:2])
+            return {
+                "url": url, "ok": False, "reason": reason,
+                "score": 0, "speed": elapsed_time,
+                "health": health_score,
+                "health_details": details,
+            }
+
+        # Hız skoru
         speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
 
-        # 2) Bandwidth skoru
-        if max_bandwidth >= 5000000:
-            bandwidth_score = 100.0
-        elif max_bandwidth >= 2500000:
-            bandwidth_score = 75.0
-        elif max_bandwidth >= 1000000:
-            bandwidth_score = 55.0
-        elif max_bandwidth > 0:
-            bandwidth_score = 35.0
-        else:
-            bandwidth_score = 50.0  # Bilgi yok, nötr
-
-        # 3) Güvenilirlik skoru
-        reliability_score = 40.0
-        if segment_count > 0:
-            reliability_score += min(segment_count * 5.0, 30.0)
-        if has_target_duration:
-            reliability_score += 15.0
-        if is_master:
-            reliability_score += 15.0
-        reliability_score = min(reliability_score, 100.0)
-
-        final_score = (
-            speed_score       * 0.50 +
-            bandwidth_score   * 0.25 +
-            reliability_score * 0.25
-        )
+        # Ağırlıklı toplam
+        final_score = speed_score * 0.60 + health_score * 0.40
 
         return {
             "url": url, "ok": True, "reason": "OK",
             "score": final_score,
             "speed": elapsed_time,
             "speed_score": speed_score,
-            "bandwidth": max_bandwidth,
-            "bandwidth_score": bandwidth_score,
-            "reliability_score": reliability_score,
-            "segments": segment_count,
-            "is_master": is_master,
+            "health": health_score,
+            "health_details": details,
         }
     except asyncio.TimeoutError:
         return {
@@ -340,7 +418,6 @@ async def handle_stream(request):
             text=f"{channel_name} için şu an aktif yayın bulunamadı.",
             status=503,
         )
-    # 302 yönlendirme — video akışı Render'dan geçmez, trafik minimum
     raise web.HTTPFound(working_url)
 
 
@@ -364,7 +441,6 @@ async def admin_save(request):
         STREAM_CACHE.pop(channel_name, None)
         SCORE_CACHE.pop(channel_name, None)
 
-        # Senkron GitHub çağrısını executor'da çalıştır (event loop blokajını önle)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, save_and_push_channels, channels)
 
@@ -476,6 +552,8 @@ async def dashboard(request):
             .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }}
             .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
             .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
+            .health-bar {{ display: inline-block; width: 60px; height: 6px; background: #334155; border-radius: 3px; overflow: hidden; vertical-align: middle; margin-left: 4px; }}
+            .health-bar-fill {{ height: 100%; }}
         </style>
         <script>
             const allChannels = {channels_json_esc};
@@ -534,6 +612,14 @@ async def dashboard(request):
                 return "bad";
             }}
 
+            function healthBar(score) {{
+                let color = "#6b7280";
+                if (score >= 75) color = "#22c55e";
+                else if (score >= 55) color = "#f59e0b";
+                else if (score >= 40) color = "#ef4444";
+                return '<span class="health-bar"><span class="health-bar-fill" style="width:' + score + '%; background:' + color + ';"></span></span>';
+            }}
+
             async function testChannel(name) {{
                 const container = document.getElementById('scores-' + name);
                 container.classList.add('open');
@@ -549,7 +635,7 @@ async def dashboard(request):
                     }}
 
                     const sorted = data.results.slice().sort((a, b) => b.score - a.score);
-                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi. Skor = Hız (%50) + Bandwidth (%25) + Güvenilirlik (%25)</div>';
+                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi. Skor = Hız (%60) + Yapı Sağlığı (%40). Yapı sağlığı &lt; 40 olan kaynaklar elenir.</div>';
 
                     sorted.forEach((r, idx) => {{
                         const isBest = r.url === data.best_url;
@@ -570,14 +656,24 @@ async def dashboard(request):
                         if (r.ok) {{
                             html += '<div class="score-stats">';
                             html += '<span class="stat ' + statClass(r.speed_score, 70, 50) + '">Hız: ' + (r.speed*1000).toFixed(0) + ' ms (' + r.speed_score.toFixed(0) + ')</span>';
-                            if (r.bandwidth > 0) {{
-                                html += '<span class="stat ' + statClass(r.bandwidth_score, 70, 50) + '">Bitrate: ' + (r.bandwidth/1000000).toFixed(2) + ' Mbps (' + r.bandwidth_score.toFixed(0) + ')</span>';
-                            }} else {{
-                                html += '<span class="stat">Bitrate: Bilinmiyor</span>';
+                            html += '<span class="stat ' + statClass(r.health, 75, 55) + '">Yapı: ' + r.health.toFixed(0) + healthBar(r.health) + '</span>';
+                            if (r.health_details) {{
+                                const d = r.health_details;
+                                if (d.segment_count > 0) html += '<span class="stat">Segment: ' + d.segment_count + '</span>';
+                                if (d.is_master) html += '<span class="stat good">Master</span>';
+                                if (d.is_live) html += '<span class="stat good">Canlı</span>';
+                                if (d.segment_durations_consistent) html += '<span class="stat good">Süreler tutarlı</span>';
+                                if (d.has_target_duration) html += '<span class="stat good">TARGETDURATION ✓</span>';
                             }}
-                            html += '<span class="stat ' + statClass(r.reliability_score, 70, 50) + '">Güvenilirlik: ' + r.reliability_score.toFixed(0) + '</span>';
-                            html += '<span class="stat">Segment: ' + r.segments + '</span>';
-                            if (r.is_master) html += '<span class="stat good">Master</span>';
+                            html += '</div>';
+                        }} else if (r.health !== undefined) {{
+                            html += '<div class="score-stats">';
+                            html += '<span class="stat bad">Yapı: ' + r.health.toFixed(0) + '</span>';
+                            if (r.health_details && r.health_details.reasons) {{
+                                r.health_details.reasons.forEach(reason => {{
+                                    html += '<span class="stat bad">' + reason + '</span>';
+                                }});
+                            }}
                             html += '</div>';
                         }}
                         html += '</div>';
@@ -602,7 +698,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Hız + Bandwidth + Güvenilirlik odaklı puanlama. Segment indirme yok, trafik minimum.</p>
+            <p class="subtitle">Skor = Hız (%60) + Yapı Sağlığı (%40). Segment indirme yok, trafik minimum.</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
