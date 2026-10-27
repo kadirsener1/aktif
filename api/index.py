@@ -10,7 +10,6 @@ import base64
 from html import escape
 import httpx
 import secrets
-import random
 
 app = FastAPI()
 
@@ -23,6 +22,10 @@ M3U8_CACHE_DURATION = 300
 MAX_M3U8_CACHE = 300
 
 CHANNEL_FAILOVER_STATE = {}
+
+# 🟢 YENİ: Donan/bozuk çıkan linkleri otomatik yakalayıp 1 dakika kara listede tutacak hafıza
+STREAM_BLACKLIST = {}
+BLACKLIST_DURATION = 60  # 1 dakika
 
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
@@ -124,7 +127,7 @@ def save_and_push_channels(channels):
             print(f"GitHub Sync Error: {e}")
 
 # ─────────────────────────────────────────────
-# M3U8 Çekme ve Sağlık Analizi
+# M3U8 Doğrulama ve Sağlık Analizi
 # ─────────────────────────────────────────────
 
 async def fetch_m3u8(client, url, timeout_sec=5.0):
@@ -142,12 +145,14 @@ async def fetch_m3u8(client, url, timeout_sec=5.0):
 async def check_url(client, url):
     try:
         content, status, elapsed_time = await fetch_m3u8(client, url, 5.0)
-        # HTTP 200 dönüyorsa ve içeriğinde M3U imzası varsa doğrudan geçerli sayıyoruz
         if status != 200 or not content or "#EXTM3U" not in content:
-            return {"url": url, "ok": False, "reason": f"HTTP {status}" if status != 200 else "Geçersiz Manifest", "score": 0}
+            return {"url": url, "ok": False, "reason": f"HTTP {status}" if status != 200 else "Boş Yanıt", "score": 0}
 
-        # Hız skoru hesaplama
-        speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
+        has_segments = "#EXTINF:" in content or "#EXT-X-STREAM-INF" in content
+        if not has_segments:
+            return {"url": url, "ok": False, "reason": "Segment Yok", "score": 0}
+
+        speed_score = max(0.0, 100.0 - elapsed_time * 20.0)
         return {"url": url, "ok": True, "reason": "OK", "score": speed_score, "speed": elapsed_time}
     except Exception as e:
         return {"url": url, "ok": False, "reason": "Bağlantı Hatası", "score": 0}
@@ -181,35 +186,68 @@ def ping():
     return {"status": "OK"}
 
 @app.get("/play/{channel_name}")
-async def handle_stream(channel_name: str):
+async def handle_stream(channel_name: str, retry: int = 0):
     channel_name = channel_name.strip().lower()
     channels = load_channels()
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    # 1. Kaynakları test et ve çalışanları al
+    original_sources = channels.get(channel_name, [])
+
+    # 1. Kara liste temizliği (Süresi dolanları çıkar)
+    now = time.time()
+    if channel_name in STREAM_BLACKLIST:
+        STREAM_BLACKLIST[channel_name] = {
+            url: t for url, t in STREAM_BLACKLIST[channel_name].items() 
+            if now - t < BLACKLIST_DURATION
+        }
+    else:
+        STREAM_BLACKLIST[channel_name] = {}
+
+    blacklisted_urls = STREAM_BLACKLIST[channel_name]
+
+    # 2. Kaynakları test et
     results = await test_all_sources(channel_name, force=True)
-    working = [r for r in results if r["ok"]]
-    
-    if not working:
+    working_dict = {r["url"]: r["score"] for r in results if r["ok"]}
+
+    # Kullanıcının paneldeki sırasına göre çalışan ve KARALİSTEDE OLMAYANLARI al
+    ordered_working_urls = [
+        url for url in original_sources 
+        if url in working_dict and url not in blacklisted_urls
+    ]
+
+    # Eğer karalisteye takılmaktan dolayı hiç geçerli link kalmadıysa, mecburen karalisteyi esnet/sıfırla
+    if not ordered_working_urls:
+        STREAM_BLACKLIST[channel_name] = {}
+        ordered_working_urls = [url for url in original_sources if url in working_dict]
+
+    if not ordered_working_urls:
         return JSONResponse({"error": f"{channel_name} için aktif yayın bulunamadı."}, status_code=503)
 
-    # 2. Skora göre sırala
-    working.sort(key=lambda x: x["score"], reverse=True)
-    working_urls = [w["url"] for w in working]
-
-    # 3. Her istekte sıradaki farklı çalışan linke geçiş (Rotasyon)
-    state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0})
-    current_index = state["index"]
+    # 3. İndeks yönetimi ve Akıllı Donma Yakalama (Runtime Failover)
+    state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "last_request": 0, "url": None})
     
-    if current_index >= len(working_urls):
+    # 💡 ÖNEMLİ MANTIK: Eğer kullanıcı aynı kanalı çok kısa süre içinde (örneğin 30 saniye içinde) 
+    # tekrar açıyorsa, bu önceki yayın donduğu / bozuk olduğu anlamına gelir!
+    if state["url"] and (now - state["last_request"] < 30):
+        # Donduğu anlaşılan bu bozuk linki anında 1 dakikalık karalisteye al!
+        STREAM_BLACKLIST[channel_name][state["url"]] = now
+        # Sıradaki bir sonraki sağlam linke geç
+        current_index = (state["index"] + 1) % len(ordered_working_urls)
+    else:
+        current_index = state["index"]
+
+    if current_index >= len(ordered_working_urls):
         current_index = 0
 
-    target_url = working_urls[current_index]
+    target_url = ordered_working_urls[current_index]
 
-    # Sonraki istek için indeksi artır
-    next_index = (current_index + 1) % len(working_urls)
-    CHANNEL_FAILOVER_STATE[channel_name] = {"index": next_index}
+    # Durumu güncelle
+    CHANNEL_FAILOVER_STATE[channel_name] = {
+        "index": current_index,
+        "last_request": now,
+        "url": target_url
+    }
 
     return RedirectResponse(url=target_url, status_code=302)
 
@@ -329,10 +367,9 @@ async def dashboard(user: str = Depends(verify_admin)):
                         return;
                     }}
 
-                    const sorted = data.results.slice().sort((a, b) => b.score - a.score);
-                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi.</div>';
+                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + data.results.length + ' kaynak test edildi.</div>';
 
-                    sorted.forEach((r, idx) => {{
+                    data.results.forEach((r, idx) => {{
                         const isBest = r.url === data.best_url;
                         const cssClass = !r.ok ? 'failed' : (isBest ? 'best' : '');
                         html += '<div class="score-row ' + cssClass + '">';
@@ -370,7 +407,7 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Stabil Çalışan Rotasyonlu Failover Modu Aktif</p>
+            <p class="subtitle">Donma / Takılma Algılayan Akıllı Failover Modu Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
@@ -447,10 +484,12 @@ async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), ur
             del channels[old_name]
             SCORE_CACHE.pop(old_name, None)
             CHANNEL_FAILOVER_STATE.pop(old_name, None)
+            STREAM_BLACKLIST.pop(old_name, None)
 
         channels[channel_name] = parsed_urls
         SCORE_CACHE.pop(old_name, None)
         CHANNEL_FAILOVER_STATE.pop(old_name, None)
+        STREAM_BLACKLIST.pop(old_name, None)
 
         await asyncio.to_thread(save_and_push_channels, channels)
 
@@ -464,6 +503,7 @@ async def admin_delete(channel_name: str, user: str = Depends(verify_admin)):
         del channels[channel_name]
         SCORE_CACHE.pop(channel_name, None)
         CHANNEL_FAILOVER_STATE.pop(channel_name, None)
+        STREAM_BLACKLIST.pop(channel_name, None)
         await asyncio.to_thread(save_and_push_channels, channels)
 
     return RedirectResponse(url="/admin", status_code=303)
@@ -479,7 +519,12 @@ async def admin_test_channel(channel_name: str, user: str = Depends(verify_admin
     best_url = None
     working = [r for r in results if r["ok"]]
     if working:
-        working.sort(key=lambda x: x["score"], reverse=True)
-        best_url = working[0]["url"]
+        original_sources = channels.get(channel_name, [])
+        for src in original_sources:
+            if any(w["url"] == src for w in working):
+                best_url = src
+                break
+        if not best_url:
+            best_url = working[0]["url"]
 
     return {"channel": channel_name, "best_url": best_url, "results": results}
