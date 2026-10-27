@@ -285,7 +285,11 @@ async def handle_stream(channel_name: str):
     
     return RedirectResponse(url=working_url, status_code=302)
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
+def read_root():
+    return HTMLResponse("<h1>IPTV Proxy Sistem Aktif</h1><p>Yönetim paneline gitmek için <a href='/admin'>/admin</a> adresini kullanın.</p>")
+
+@app.get("/admin", response_class=HTMLResponse)
 async def dashboard(user: str = Depends(verify_admin)):
     channels = load_channels()
     current_time = time.time()
@@ -293,33 +297,264 @@ async def dashboard(user: str = Depends(verify_admin)):
     stream_cache_count = len(STREAM_CACHE)
     m3u8_cache_count = len(M3U8_CACHE)
 
-    # (Aynı HTML tasarımı burada yer alır - kod kalabalığı olmaması için özet dashboard şablonu)
     html = f"""
     <!DOCTYPE html>
     <html lang="tr">
-    <head><meta charset="UTF-8"><title>IPTV Vercel Admin</title>
-    <style>body{{font-family:sans-serif;background:#0f172a;color:#fff;padding:20px;}} .card{{background:#1e293b;padding:20px;border-radius:8px;margin-bottom:20px;}} input,textarea{{width:100%;padding:8px;margin:5px 0;background:#0f172a;color:#fff;border:1px solid #334155;}} button{{background:#0284c7;color:#fff;border:none;padding:8px 15px;cursor:pointer;border-radius:4px;}}</style>
+    <head>
+        <meta charset="UTF-8">
+        <title>IPTV Failover Admin Paneli</title>
+        <style>
+            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }}
+            .container {{ max-width: 1200px; margin: 0 auto; }}
+            h1 {{ color: #38bdf8; font-size: 24px; margin-bottom: 5px; }}
+            p.subtitle {{ color: #94a3b8; margin-top: 0; }}
+            .card {{ background: #1e293b; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }}
+            input, textarea {{ width: 100%; padding: 10px; margin: 6px 0 12px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 4px; box-sizing: border-box; }}
+            button, .btn-action {{ background: #0284c7; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; text-decoration: none; display: inline-block; }}
+            button:hover, .btn-action:hover {{ background: #0369a1; }}
+            .btn-danger {{ background: #dc2626; padding: 6px 12px; font-size: 12px; }}
+            .btn-danger:hover {{ background: #b91c1c; }}
+            .btn-warning {{ background: #d97706; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
+            .btn-warning:hover {{ background: #b45309; }}
+            .btn-test {{ background: #7c3aed; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
+            .btn-test:hover {{ background: #6d28d9; }}
+            .btn-clear {{ background: #0d9488; margin-bottom: 15px; }}
+            .btn-clear:hover {{ background: #0f766e; }}
+            .btn-secondary {{ background: #475569; padding: 6px 12px; font-size: 12px; margin-left: 10px; display: none; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+            th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; vertical-align: top; }}
+            th {{ background: #0f172a; color: #38bdf8; font-weight: 600; }}
+            tr:last-child td {{ border-bottom: none; }}
+            .badge-cached {{ background: #1e3a8a; color: #60a5fa; padding: 4px 8px; border-radius: 4px; font-size: 12px; }}
+            .badge-inactive {{ background: #334155; color: #94a3b8; padding: 4px 8px; border-radius: 4px; font-size: 12px; }}
+            a {{ color: #38bdf8; text-decoration: none; }}
+            a:hover {{ text-decoration: underline; }}
+            .score-detail {{ display: none; background: #0f172a; padding: 12px; border-radius: 6px; margin-top: 8px; }}
+            .score-detail.open {{ display: block; }}
+            .score-row {{ padding: 8px; margin: 4px 0; background: #1e293b; border-radius: 4px; border-left: 3px solid #475569; }}
+            .score-row.best {{ border-left-color: #22c55e; background: #052e16; }}
+            .score-row.failed {{ border-left-color: #dc2626; background: #450a0a; opacity: 0.7; }}
+            .score-url {{ font-family: monospace; font-size: 11px; color: #cbd5e1; word-break: break-all; }}
+            .score-stats {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 11px; }}
+            .stat {{ background: #334155; padding: 3px 8px; border-radius: 4px; color: #e2e8f0; }}
+            .stat.good {{ background: #166534; color: #bbf7d0; }}
+            .stat.mid {{ background: #854d0e; color: #fef08a; }}
+            .stat.bad {{ background: #991b1b; color: #fecaca; }}
+            .score-badge {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px; }}
+            .score-high {{ background: #22c55e; color: #052e16; }}
+            .score-mid {{ background: #f59e0b; color: #431407; }}
+            .score-low {{ background: #6b7280; color: #0f172a; }}
+            .score-fail {{ background: #dc2626; color: #ffffff; }}
+            .loading {{ color: #94a3b8; font-style: italic; padding: 10px; }}
+            .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }}
+            .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
+            .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
+            .health-bar {{ display: inline-block; width: 60px; height: 6px; background: #334155; border-radius: 3px; overflow: hidden; vertical-align: middle; margin-left: 4px; }}
+            .health-bar-fill {{ height: 100%; }}
+        </style>
+        <script>
+            const allChannels = {channels_json_esc};
+
+            function editChannel(name) {{
+                const urls = allChannels[name];
+                if (urls) {{
+                    document.getElementById('old_name').value = name;
+                    document.getElementById('channel_name').value = name;
+                    document.getElementById('urls').value = urls.join('\\n');
+                    document.getElementById('form-title').innerText = "Kanalı Düzenle: " + name;
+                    document.getElementById('submit-btn').innerText = "Değişiklikleri Kaydet";
+                    document.getElementById('cancel-btn').style.display = "inline-block";
+                    window.scrollTo({{ top: 0, behavior: 'smooth' }});
+                }}
+            }}
+
+            function resetForm() {{
+                document.getElementById('old_name').value = "";
+                document.getElementById('channel_name').value = "";
+                document.getElementById('urls').value = "";
+                document.getElementById('form-title').innerText = "Yeni Kanal Ekle";
+                document.getElementById('submit-btn').innerText = "Kanalı Ekle ve GitHub'a Kaydet";
+                document.getElementById('cancel-btn').style.display = "none";
+            }}
+
+            function filterChannels() {{
+                const input = document.getElementById('searchInput').value.toLowerCase();
+                const table = document.getElementById('channelTable');
+                const trs = table.getElementsByTagName('tr');
+                for (let i = 1; i < trs.length; i++) {{
+                    const td = trs[i].getElementsByTagName('td')[0];
+                    if (td) {{
+                        const t = td.textContent || td.innerText;
+                        trs[i].style.display = (t.toLowerCase().indexOf(input) > -1) ? "" : "none";
+                    }}
+                }}
+            }}
+
+            function scoreBadge(score) {{
+                if (score >= 75) return "score-high";
+                if (score >= 55) return "score-mid";
+                return "score-low";
+            }}
+
+            function scoreLabel(score) {{
+                if (score >= 75) return "ÇOK İYİ ✅";
+                if (score >= 55) return "İYİ 👍";
+                if (score >= 35) return "ORTA ⚠️";
+                return "ZAYIF ⚠️";
+            }}
+
+            function statClass(value, good, mid) {{
+                if (value >= good) return "good";
+                if (value >= mid) return "mid";
+                return "bad";
+            }}
+
+            function healthBar(score) {{
+                let color = "#6b7280";
+                if (score >= 75) color = "#22c55e";
+                else if (score >= 55) color = "#f59e0b";
+                else if (score >= 40) color = "#ef4444";
+                return '<span class="health-bar"><span class="health-bar-fill" style="width:' + score + '%; background:' + color + ';"></span></span>';
+            }}
+
+            async function testChannel(name) {{
+                const container = document.getElementById('scores-' + name);
+                container.classList.add('open');
+                container.innerHTML = '<div class="loading">🔄 Linkler test ediliyor...</div>';
+
+                try {{
+                    const res = await fetch('/admin/test/' + encodeURIComponent(name));
+                    const data = await res.json();
+
+                    if (!data.results || data.results.length === 0) {{
+                        container.innerHTML = '<div class="loading">⚠️ Sonuç yok.</div>';
+                        return;
+                    }}
+
+                    const sorted = data.results.slice().sort((a, b) => b.score - a.score);
+                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi. Skor = Hız (%60) + Yapı Sağlığı (%40).</div>';
+
+                    sorted.forEach((r, idx) => {{
+                        const isBest = r.url === data.best_url;
+                        const cssClass = !r.ok ? 'failed' : (isBest ? 'best' : '');
+                        html += '<div class="score-row ' + cssClass + '">';
+                        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:6px;">';
+                        html += '<strong>#' + (idx+1) + ' ';
+                        if (isBest) html += '🏆 SEÇİLDİ ';
+                        if (!r.ok) html += '❌ ';
+                        html += 'Skor: ' + r.score.toFixed(1) + '</strong>';
+                        if (r.ok) {{
+                            html += '<span class="score-badge ' + scoreBadge(r.score) + '">' + scoreLabel(r.score) + '</span>';
+                        }} else {{
+                            html += '<span class="score-badge score-fail">' + r.reason + '</span>';
+                        }}
+                        html += '</div>';
+                        html += '<div class="score-url">' + r.url + '</div>';
+                        if (r.ok) {{
+                            html += '<div class="score-stats">';
+                            html += '<span class="stat ' + statClass(r.speed_score, 70, 50) + '">Hız: ' + (r.speed*1000).toFixed(0) + ' ms</span>';
+                            html += '<span class="stat ' + statClass(r.health, 75, 55) + '">Yapı: ' + r.health.toFixed(0) + healthBar(r.health) + '</span>';
+                            html += '</div>';
+                        }}
+                        html += '</div>';
+                    }});
+
+                    container.innerHTML = html;
+                }} catch (e) {{
+                    container.innerHTML = '<div class="loading">❌ Hata: ' + e.message + '</div>';
+                }}
+            }}
+
+            function toggleScores(name) {{
+                const container = document.getElementById('scores-' + name);
+                if (container.classList.contains('open') && container.innerHTML.trim() !== '') {{
+                    container.classList.remove('open');
+                }} else {{
+                    testChannel(name);
+                }}
+            }}
+        </script>
     </head>
     <body>
-    <div style="max-width:1000px;margin:0 auto;">
-      <h1>IPTV Vercel Proxy Paneli</h1>
-      <div class="card">
-        <h3>Yeni Kanal Ekle</h3>
-        <form action="/admin/save" method="POST">
-          <input type="hidden" id="old_name" name="old_name" value="">
-          <label>Kanal Adı:</label><input type="text" id="channel_name" name="channel_name" required>
-          <label>M3U8 Linkleri:</label><textarea id="urls" name="urls" rows="3" required></textarea>
-          <button type="submit" id="submit-btn">Kaydet ve GitHub'a Eşitle</button>
-        </form>
-      </div>
-      <div class="card">
-        <h3>Kanallar ({len(channels)})</h3>
-        <ul>
+        <div class="container">
+            <h1>IPTV Smart Proxy Admin Paneli</h1>
+            <p class="subtitle">Vercel Serverless Modunda Çalışıyor</p>
+
+            <div class="stats-bar">
+                <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
+                <div class="stat-item"><strong>{stream_cache_count}</strong>Aktif Yayın</div>
+                <div class="stat-item"><strong>{m3u8_cache_count}</strong>M3U8 Cache</div>
+            </div>
+
+            <div class="card">
+                <h3 id="form-title">Yeni Kanal Ekle</h3>
+                <form action="/admin/save" method="POST">
+                    <input type="hidden" id="old_name" name="old_name" value="">
+                    <label>Kanal Adı (Örn: sportv):</label>
+                    <input type="text" id="channel_name" name="channel_name" required placeholder="sportv">
+                    <label>M3U8 Linkleri (Alt alta veya virgülle ayırarak):</label>
+                    <textarea id="urls" name="urls" rows="3" required placeholder="https://ornek.com/kanal1.m3u8"></textarea>
+                    <button type="submit" id="submit-btn">Kanalı Ekle ve GitHub'a Kaydet</button>
+                    <button type="button" id="cancel-btn" class="btn-secondary" onclick="resetForm()">İptal</button>
+                </form>
+            </div>
+
+            <div class="card">
+                <h3>Tanımlı Kanallar Listesi</h3>
+                <input type="text" id="searchInput" placeholder="🔍 Kanal adıyla hızlıca ara..." onkeyup="filterChannels()">
+                <table id="channelTable">
+                    <thead>
+                        <tr>
+                            <th>Kanal Adı</th>
+                            <th>Durum</th>
+                            <th>Oynatıcı Linki & Seçilen Kaynak</th>
+                            <th>İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody>
     """
+
     for name, sources in channels.items():
-        html += f"<li><b>{escape(name)}</b> - <a href='/play/{name}' target='_blank'>/play/{name}</a> (<a href='/admin/delete/{name}'>Sil</a>)</li>"
-    html += "</ul></div></div></body></html>"
-    return html
+        safe_name_html = escape(name)
+        safe_name_js = json.dumps(name)
+        play_link = f"/play/{name}"
+        delete_link = f"/admin/delete/{name}"
+
+        cache_info = STREAM_CACHE.get(name)
+        if cache_info and (current_time - cache_info["time"] < CACHE_DURATION):
+            score_text = f" (Skor: {cache_info.get('score', 0):.1f})"
+            status_html = '<span class="badge-cached">Önbellekte Aktif</span>'
+            active_url = escape(cache_info["url"] + score_text)
+        else:
+            status_html = '<span class="badge-inactive">Test Bekliyor</span>'
+            active_url = f"{len(sources)} kaynak tanımlı"
+
+        html += f"""
+                        <tr>
+                            <td><strong>{safe_name_html}</strong></td>
+                            <td>{status_html}</td>
+                            <td>
+                                <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
+                                <small style="color: #94a3b8; word-break: break-all;">{active_url}</small>
+                                <div id="scores-{safe_name_html}" class="score-detail"></div>
+                            </td>
+                            <td>
+                                <button class="btn-test" onclick='toggleScores({safe_name_js})'>📊 Skorlar</button>
+                                <button class="btn-warning" onclick='editChannel({safe_name_js})'>Düzenle</button>
+                                <a href="{escape(delete_link)}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
+                            </td>
+                        </tr>
+        """
+
+    html += """
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 @app.post("/admin/save")
 async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), urls: str = Form(...), user: str = Depends(verify_admin)):
@@ -340,7 +575,7 @@ async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), ur
 
         await asyncio.to_thread(save_and_push_channels, channels)
 
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/admin", status_code=303)
 
 @app.get("/admin/delete/{channel_name}")
 async def admin_delete(channel_name: str, user: str = Depends(verify_admin)):
@@ -352,13 +587,14 @@ async def admin_delete(channel_name: str, user: str = Depends(verify_admin)):
         SCORE_CACHE.pop(channel_name, None)
         await asyncio.to_thread(save_and_push_channels, channels)
 
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/admin", status_code=303)
 
 @app.get("/admin/test/{channel_name}")
 async def admin_test_channel(channel_name: str, user: str = Depends(verify_admin)):
     channel_name = channel_name.strip().lower()
     channels = load_channels()
     if channel_name not in channels:
+    
         return JSONResponse({"error": "Kanal bulunamadı"}, status_code=404)
 
     results = await test_all_sources(channel_name, force=True)
