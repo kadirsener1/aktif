@@ -10,6 +10,7 @@ import base64
 from html import escape
 import httpx
 import secrets
+import random
 
 app = FastAPI()
 
@@ -20,6 +21,9 @@ M3U8_CACHE = {}
 CACHE_DURATION = 60
 M3U8_CACHE_DURATION = 300
 MAX_M3U8_CACHE = 300
+
+# Harici oynatıcılar (VLC, IPTV Smarters vb.) için sıralı failover durum belleği
+CHANNEL_FAILOVER_STATE = {}
 
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
@@ -43,7 +47,7 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     return credentials.username
 
 # ─────────────────────────────────────────────
-# Kanal yükleme / kaydetme
+# Kanal Yükleme ve GitHub Senkronizasyonu
 # ─────────────────────────────────────────────
 
 def _load_channels_uncached():
@@ -121,7 +125,7 @@ def save_and_push_channels(channels):
             print(f"GitHub Sync Error: {e}")
 
 # ─────────────────────────────────────────────
-# M3U8 çekme ve Sağlık Analizi
+# M3U8 Çekme ve Sağlık Analizi
 # ─────────────────────────────────────────────
 
 async def fetch_m3u8(client, url, timeout_sec=5.0):
@@ -221,7 +225,7 @@ async def check_url(client, url):
         final_score = speed_score * 0.60 + health_score * 0.40
         return {"url": url, "ok": True, "reason": "OK", "score": final_score, "speed": elapsed_time, "speed_score": speed_score, "health": health_score, "health_details": details}
     except Exception as e:
-        return {"url": url, "ok": False, "reason": f"Hata", "score": 0, "speed": 0}
+        return {"url": url, "ok": False, "reason": "Hata", "score": 0, "speed": 0}
 
 async def test_all_sources(channel_name, force=False):
     current_time = time.time()
@@ -241,28 +245,16 @@ async def test_all_sources(channel_name, force=False):
 
     results = [r for r in results if r is not None]
     SCORE_CACHE[channel_name] = {"time": current_time, "results": results}
-
-    working = [r for r in results if r["ok"]]
-    if working:
-        working.sort(key=lambda x: x["score"], reverse=True)
-        STREAM_CACHE[channel_name] = {"url": working[0]["url"], "time": current_time, "score": working[0]["score"]}
-    else:
-        STREAM_CACHE.pop(channel_name, None)
-
     return results
 
-async def get_working_stream(channel_name):
-    current_time = time.time()
-    if channel_name in STREAM_CACHE:
-        c = STREAM_CACHE[channel_name]
-        if current_time - c["time"] < CACHE_DURATION:
-            return c["url"]
-
-    results = await test_all_sources(channel_name, force=True)
+async def get_ordered_working_sources(channel_name):
+    results = await test_all_sources(channel_name, force=False)
     working = [r for r in results if r["ok"]]
-    if not working: return None
+    if not working:
+        return []
+    # En yüksek skordan en düşüğe sırala
     working.sort(key=lambda x: x["score"], reverse=True)
-    return working[0]["url"]
+    return [w["url"] for w in working]
 
 # ─────────────────────────────────────────────
 # Endpoint'ler
@@ -273,28 +265,56 @@ def ping():
     return {"status": "OK"}
 
 @app.get("/play/{channel_name}")
-async def handle_stream(channel_name: str):
+async def handle_stream(channel_name: str, reset: int = 0):
     channel_name = channel_name.strip().lower()
     channels = load_channels()
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    working_url = await get_working_stream(channel_name)
-    if not working_url:
-        return JSONResponse({"error": f"{channel_name} için aktif yayın bulunamadı."}, status_code=503)
+    # Çalışan tüm kaynakları skora göre sıralı al
+    working_urls = await get_ordered_working_sources(channel_name)
     
-    return RedirectResponse(url=working_url, status_code=302)
+    if not working_urls:
+        return JSONResponse({"error": f"{channel_name} için aktif yayın bulunamadı."}, status_code=503)
+
+    # Bu kanal için mevcut index durumunu al
+    state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "time": time.time()})
+    current_index = state["index"]
+    
+    if reset == 1 or current_index >= len(working_urls):
+        current_index = 0
+
+    target_url = working_urls[current_index]
+
+    # Sonraki bağlantı denemesinde / hata durumunda bir sonraki çalışan kaynağa geç (Round-Robin / Failover)
+    next_index = (current_index + 1) % len(working_urls)
+    CHANNEL_FAILOVER_STATE[channel_name] = {
+        "index": next_index,
+        "time": time.time()
+    }
+
+    return RedirectResponse(url=target_url, status_code=302)
+
+@app.get("/playlist.m3u")
+def generate_m3u(request: Request):
+    channels = load_channels()
+    m3u_content = "#EXTM3U\n"
+    base_url = str(request.base_url).rstrip("/")
+    
+    for name in channels.keys():
+        m3u_content += f'#EXTINF:-1 tvg-name="{name}" group-title="IPTV Proxy",{name.upper()}\n'
+        m3u_content += f"{base_url}/play/{name}\n"
+        
+    return HTMLResponse(content=m3u_content, media_type="audio/x-mpegurl")
 
 @app.get("/")
 def read_root():
-    return HTMLResponse("<h1>IPTV Proxy Sistem Aktif</h1><p>Yönetim paneline gitmek için <a href='/admin'>/admin</a> adresini kullanın.</p>")
+    return HTMLResponse("<h1>IPTV Proxy Sistem Aktif</h1><p>Yönetim paneline gitmek için <a href='/admin'>/admin</a> adresini kullanın. Çalma listesi için <a href='/playlist.m3u'>/playlist.m3u</a></p>")
 
 @app.get("/admin", response_class=HTMLResponse)
 async def dashboard(user: str = Depends(verify_admin)):
     channels = load_channels()
-    current_time = time.time()
     channels_json_esc = json.dumps(channels, ensure_ascii=False)
-    stream_cache_count = len(STREAM_CACHE)
     m3u8_cache_count = len(M3U8_CACHE)
 
     html = f"""
@@ -318,15 +338,12 @@ async def dashboard(user: str = Depends(verify_admin)):
             .btn-warning:hover {{ background: #b45309; }}
             .btn-test {{ background: #7c3aed; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
             .btn-test:hover {{ background: #6d28d9; }}
-            .btn-clear {{ background: #0d9488; margin-bottom: 15px; }}
-            .btn-clear:hover {{ background: #0f766e; }}
             .btn-secondary {{ background: #475569; padding: 6px 12px; font-size: 12px; margin-left: 10px; display: none; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; vertical-align: top; }}
             th {{ background: #0f172a; color: #38bdf8; font-weight: 600; }}
             tr:last-child td {{ border-bottom: none; }}
             .badge-cached {{ background: #1e3a8a; color: #60a5fa; padding: 4px 8px; border-radius: 4px; font-size: 12px; }}
-            .badge-inactive {{ background: #334155; color: #94a3b8; padding: 4px 8px; border-radius: 4px; font-size: 12px; }}
             a {{ color: #38bdf8; text-decoration: none; }}
             a:hover {{ text-decoration: underline; }}
             .score-detail {{ display: none; background: #0f172a; padding: 12px; border-radius: 6px; margin-top: 8px; }}
@@ -337,9 +354,6 @@ async def dashboard(user: str = Depends(verify_admin)):
             .score-url {{ font-family: monospace; font-size: 11px; color: #cbd5e1; word-break: break-all; }}
             .score-stats {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 11px; }}
             .stat {{ background: #334155; padding: 3px 8px; border-radius: 4px; color: #e2e8f0; }}
-            .stat.good {{ background: #166534; color: #bbf7d0; }}
-            .stat.mid {{ background: #854d0e; color: #fef08a; }}
-            .stat.bad {{ background: #991b1b; color: #fecaca; }}
             .score-badge {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px; }}
             .score-high {{ background: #22c55e; color: #052e16; }}
             .score-mid {{ background: #f59e0b; color: #431407; }}
@@ -432,7 +446,7 @@ async def dashboard(user: str = Depends(verify_admin)):
                     }}
 
                     const sorted = data.results.slice().sort((a, b) => b.score - a.score);
-                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi. Skor = Hız (%60) + Yapı Sağlığı (%40).</div>';
+                    let html = '<div style="margin-bottom:8px; color:#94a3b8; font-size:12px;">📊 ' + sorted.length + ' kaynak test edildi.</div>';
 
                     sorted.forEach((r, idx) => {{
                         const isBest = r.url === data.best_url;
@@ -440,7 +454,7 @@ async def dashboard(user: str = Depends(verify_admin)):
                         html += '<div class="score-row ' + cssClass + '">';
                         html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:6px;">';
                         html += '<strong>#' + (idx+1) + ' ';
-                        if (isBest) html += '🏆 SEÇİLDİ ';
+                        if (isBest) html += '🏆 EN İYİ ';
                         if (!r.ok) html += '❌ ';
                         html += 'Skor: ' + r.score.toFixed(1) + '</strong>';
                         if (r.ok) {{
@@ -452,8 +466,8 @@ async def dashboard(user: str = Depends(verify_admin)):
                         html += '<div class="score-url">' + r.url + '</div>';
                         if (r.ok) {{
                             html += '<div class="score-stats">';
-                            html += '<span class="stat ' + statClass(r.speed_score, 70, 50) + '">Hız: ' + (r.speed*1000).toFixed(0) + ' ms</span>';
-                            html += '<span class="stat ' + statClass(r.health, 75, 55) + '">Yapı: ' + r.health.toFixed(0) + healthBar(r.health) + '</span>';
+                            html += '<span class="stat">Hız: ' + (r.speed*1000).toFixed(0) + ' ms</span>';
+                            html += '<span class="stat">Yapı: ' + r.health.toFixed(0) + healthBar(r.health) + '</span>';
                             html += '</div>';
                         }}
                         html += '</div>';
@@ -478,12 +492,12 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Vercel Serverless Modunda Çalışıyor</p>
+            <p class="subtitle">Vercel Serverless & Sıralı Failover Modu Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
-                <div class="stat-item"><strong>{stream_cache_count}</strong>Aktif Yayın</div>
                 <div class="stat-item"><strong>{m3u8_cache_count}</strong>M3U8 Cache</div>
+                <div class="stat-item"><a href="/playlist.m3u" target="_blank">📥 M3U Çalma Listesini İndir</a></div>
             </div>
 
             <div class="card">
@@ -506,8 +520,7 @@ async def dashboard(user: str = Depends(verify_admin)):
                     <thead>
                         <tr>
                             <th>Kanal Adı</th>
-                            <th>Durum</th>
-                            <th>Oynatıcı Linki & Seçilen Kaynak</th>
+                            <th>Oynatıcı Linki</th>
                             <th>İşlem</th>
                         </tr>
                     </thead>
@@ -520,22 +533,11 @@ async def dashboard(user: str = Depends(verify_admin)):
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
 
-        cache_info = STREAM_CACHE.get(name)
-        if cache_info and (current_time - cache_info["time"] < CACHE_DURATION):
-            score_text = f" (Skor: {cache_info.get('score', 0):.1f})"
-            status_html = '<span class="badge-cached">Önbellekte Aktif</span>'
-            active_url = escape(cache_info["url"] + score_text)
-        else:
-            status_html = '<span class="badge-inactive">Test Bekliyor</span>'
-            active_url = f"{len(sources)} kaynak tanımlı"
-
         html += f"""
                         <tr>
-                            <td><strong>{safe_name_html}</strong></td>
-                            <td>{status_html}</td>
+                            <td><strong>{safe_name_html}</strong><br><small style="color:#94a3b8;">{len(sources)} kaynak tanımlı</small></td>
                             <td>
-                                <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
-                                <small style="color: #94a3b8; word-break: break-all;">{active_url}</small>
+                                <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a>
                                 <div id="scores-{safe_name_html}" class="score-detail"></div>
                             </td>
                             <td>
@@ -566,12 +568,12 @@ async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), ur
         channels = load_channels()
         if old_name and old_name != channel_name and old_name in channels:
             del channels[old_name]
-            STREAM_CACHE.pop(old_name, None)
             SCORE_CACHE.pop(old_name, None)
+            CHANNEL_FAILOVER_STATE.pop(old_name, None)
 
         channels[channel_name] = parsed_urls
-        STREAM_CACHE.pop(channel_name, None)
         SCORE_CACHE.pop(channel_name, None)
+        CHANNEL_FAILOVER_STATE.pop(channel_name, None)
 
         await asyncio.to_thread(save_and_push_channels, channels)
 
@@ -583,8 +585,8 @@ async def admin_delete(channel_name: str, user: str = Depends(verify_admin)):
     channels = load_channels()
     if channel_name in channels:
         del channels[channel_name]
-        STREAM_CACHE.pop(channel_name, None)
         SCORE_CACHE.pop(channel_name, None)
+        CHANNEL_FAILOVER_STATE.pop(channel_name, None)
         await asyncio.to_thread(save_and_push_channels, channels)
 
     return RedirectResponse(url="/admin", status_code=303)
@@ -594,7 +596,6 @@ async def admin_test_channel(channel_name: str, user: str = Depends(verify_admin
     channel_name = channel_name.strip().lower()
     channels = load_channels()
     if channel_name not in channels:
-    
         return JSONResponse({"error": "Kanal bulunamadı"}, status_code=404)
 
     results = await test_all_sources(channel_name, force=True)
