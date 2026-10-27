@@ -1,188 +1,188 @@
 {
     "atv": [
         "https://vavoo1.magnitude.workers.dev/play/atv",
-        https://vavoo2.magnitude2.workers.dev/play/atv",
-        https://vavoo3.magnitude3.workers.dev/play/atv",
-        https://vavoo4.magnitude4.workers.dev/play/atv"
+        "https://vavoo2.magnitude2.workers.dev/play/atv",
+        "https://vavoo3.magnitude3.workers.dev/play/atv",
+        "https://vavoo4.magnitude4.workers.dev/play/atv"
     ],
     "now": [
         "https://vavoo1.magnitude.workers.dev/play/now",
-        https://vavoo2.magnitude2.workers.dev/play/now",
-        https://vavoo3.magnitude3.workers.dev/play/now",
-        https://vavoo4.magnitude4.workers.dev/play/now"
+        "https://vavoo2.magnitude2.workers.dev/play/now",
+        "https://vavoo3.magnitude3.workers.dev/play/now",
+        "https://vavoo4.magnitude4.workers.dev/play/now"
     ],
     "gurme": [
         "https://vavoo1.magnitude.workers.dev/play/gurme",
-        https://vavoo2.magnitude2.workers.dev/play/gurme",
-        https://vavoo3.magnitude3.workers.dev/play/gurme",
-        https://vavoo4.magnitude4.workers.dev/play/gurme"
+        "https://vavoo2.magnitude2.workers.dev/play/gurme",
+        "https://vavoo3.magnitude3.workers.dev/play/gurme",
+        "https://vavoo4.magnitude4.workers.dev/play/gurme"
     ],
     "beiniz": [
         "https://vavoo1.magnitude.workers.dev/play/beiniz",
-        https://vavoo2.magnitude2.workers.dev/play/beiniz",
-        https://vavoo3.magnitude3.workers.dev/play/beiniz",
-        https://vavoo4.magnitude4.workers.dev/play/beiniz"
+        "https://vavoo2.magnitude2.workers.dev/play/beiniz",
+        "https://vavoo3.magnitude3.workers.dev/play/beiniz",
+        "https://vavoo4.magnitude4.workers.dev/play/beiniz"
     ],
     "natgeo": [
         "https://vavoo1.magnitude.workers.dev/play/natgeo",
-        https://vavoo2.magnitude2.workers.dev/play/natgeo",
-        https://vavoo3.magnitude3.workers.dev/play/natgeo",
-        https://vavoo4.magnitude4.workers.dev/play/natgeo"
+        "https://vavoo2.magnitude2.workers.dev/play/natgeo",
+        "https://vavoo3.magnitude3.workers.dev/play/natgeo",
+        "https://vavoo4.magnitude4.workers.dev/play/natgeo"
     ],
     "beinsport1sd": [
         "https://vavoo1.magnitude.workers.dev/play/beinsport1sd",
-        https://vavoo2.magnitude2.workers.dev/play/beinsport1sd",
-        https://vavoo3.magnitude3.workers.dev/play/beinsport1sd",
-        https://vavoo4.magnitude4.workers.dev/play/beinsport1sd"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsport1sd",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsport1sd",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsport1sd"
     ],
     "bein1feed720p": [
         "https://vavoo1.magnitude.workers.dev/play/bein1feed720p",
-        https://vavoo2.magnitude2.workers.dev/play/bein1feed720p",
-        https://vavoo3.magnitude3.workers.dev/play/bein1feed720p",
-        https://vavoo4.magnitude4.workers.dev/play/bein1feed720p"
+        "https://vavoo2.magnitude2.workers.dev/play/bein1feed720p",
+        "https://vavoo3.magnitude3.workers.dev/play/bein1feed720p",
+        "https://vavoo4.magnitude4.workers.dev/play/bein1feed720p"
     ],
     "bein1sd360p": [
         "https://vavoo1.magnitude.workers.dev/play/bein1sd360p",
-        https://vavoo2.magnitude2.workers.dev/play/bein1sd360p",
-        https://vavoo3.magnitude3.workers.dev/play/bein1sd360p",
-        https://vavoo4.magnitude4.workers.dev/play/bein1sd360p"
+        "https://vavoo2.magnitude2.workers.dev/play/bein1sd360p",
+        "https://vavoo3.magnitude3.workers.dev/play/bein1sd360p",
+        "https://vavoo4.magnitude4.workers.dev/play/bein1sd360p"
     ],
     "beinsports1": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1"
     ],
     "beinsports1720p": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1720p",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1720p",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1720p",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1720p"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1720p",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1720p",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1720p"
     ],
     "beinsports1720pfeed": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1720pfeed",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1720pfeed",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1720pfeed",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1720pfeed"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1720pfeed",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1720pfeed",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1720pfeed"
     ],
     "beinsports1liveduringeventsonly": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1liveduringeventsonly",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1liveduringeventsonly",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1liveduringeventsonly",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1liveduringeventsonly"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1liveduringeventsonly",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1liveduringeventsonly",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1liveduringeventsonly"
     ],
     "beinsports1plus": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1plus",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1plus",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1plus",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1plus"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1plus",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1plus",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1plus"
     ],
     "beinsports150fps": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports150fps",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports150fps",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports150fps",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports150fps"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports150fps",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports150fps",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports150fps"
     ],
     "beinsports1feed": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1feed",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1feed",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1feed",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1feed"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1feed",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1feed",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1feed"
     ],
     "beinsports1h265": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1h265",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1h265",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1h265",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1h265"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1h265",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1h265",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1h265"
     ],
     "beinsports1hdturkey": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports1hdturkey",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports1hdturkey",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports1hdturkey",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports1hdturkey"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports1hdturkey",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports1hdturkey",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports1hdturkey"
     ],
     "beinsports720pfeed": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports720pfeed",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports720pfeed",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports720pfeed",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports720pfeed"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports720pfeed",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports720pfeed",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports720pfeed"
     ],
     "beinsports8kfeed": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports8kfeed",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports8kfeed",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports8kfeed",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports8kfeed"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports8kfeed",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports8kfeed",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports8kfeed"
     ],
     "beinsportsfeedozelfeedyayin": [
         "https://vavoo1.magnitude.workers.dev/play/beinsportsfeedozelfeedyayin",
-        https://vavoo2.magnitude2.workers.dev/play/beinsportsfeedozelfeedyayin",
-        https://vavoo3.magnitude3.workers.dev/play/beinsportsfeedozelfeedyayin",
-        https://vavoo4.magnitude4.workers.dev/play/beinsportsfeedozelfeedyayin"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsportsfeedozelfeedyayin",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsportsfeedozelfeedyayin",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsportsfeedozelfeedyayin"
     ],
     "beinsports4kfeedkutu": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports4kfeedkutu",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports4kfeedkutu",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports4kfeedkutu",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports4kfeedkutu"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports4kfeedkutu",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports4kfeedkutu",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports4kfeedkutu"
     ],
     "beinsports4kfeeduydu": [
         "https://vavoo1.magnitude.workers.dev/play/beinsports4kfeeduydu",
-        https://vavoo2.magnitude2.workers.dev/play/beinsports4kfeeduydu",
-        https://vavoo3.magnitude3.workers.dev/play/beinsports4kfeeduydu",
-        https://vavoo4.magnitude4.workers.dev/play/beinsports4kfeeduydu"
+        "https://vavoo2.magnitude2.workers.dev/play/beinsports4kfeeduydu",
+        "https://vavoo3.magnitude3.workers.dev/play/beinsports4kfeeduydu",
+        "https://vavoo4.magnitude4.workers.dev/play/beinsports4kfeeduydu"
     ],
     "ssport1": [
         "https://vavoo1.magnitude.workers.dev/play/ssport1",
-        https://vavoo2.magnitude2.workers.dev/play/ssport1",
-        https://vavoo3.magnitude3.workers.dev/play/ssport1",
-        https://vavoo4.magnitude4.workers.dev/play/ssport1"
+        "https://vavoo2.magnitude2.workers.dev/play/ssport1",
+        "https://vavoo3.magnitude3.workers.dev/play/ssport1",
+        "https://vavoo4.magnitude4.workers.dev/play/ssport1"
     ],
     "ssport2": [
         "https://vavoo1.magnitude.workers.dev/play/ssport2",
-        https://vavoo2.magnitude2.workers.dev/play/ssport2",
-        https://vavoo3.magnitude3.workers.dev/play/ssport2",
-        https://vavoo4.magnitude4.workers.dev/play/ssport2"
+        "https://vavoo2.magnitude2.workers.dev/play/ssport2",
+        "https://vavoo3.magnitude3.workers.dev/play/ssport2",
+        "https://vavoo4.magnitude4.workers.dev/play/ssport2"
     ],
     "eurosport1": [
         "https://vavoo1.magnitude.workers.dev/play/eurosport1",
-        https://vavoo2.magnitude2.workers.dev/play/eurosport1",
-        https://vavoo3.magnitude3.workers.dev/play/eurosport1",
-        https://vavoo4.magnitude4.workers.dev/play/eurosport1"
+        "https://vavoo2.magnitude2.workers.dev/play/eurosport1",
+        "https://vavoo3.magnitude3.workers.dev/play/eurosport1",
+        "https://vavoo4.magnitude4.workers.dev/play/eurosport1"
     ],
     "eurosport2": [
         "https://vavoo1.magnitude.workers.dev/play/eurosport2",
-        https://vavoo2.magnitude2.workers.dev/play/eurosport2",
-        https://vavoo3.magnitude3.workers.dev/play/eurosport2",
-        https://vavoo4.magnitude4.workers.dev/play/eurosport2"
+        "https://vavoo2.magnitude2.workers.dev/play/eurosport2",
+        "https://vavoo3.magnitude3.workers.dev/play/eurosport2",
+        "https://vavoo4.magnitude4.workers.dev/play/eurosport2"
     ],
     "yabantv": [
         "https://vavoo1.magnitude.workers.dev/play/yabantv",
-        https://vavoo2.magnitude2.workers.dev/play/yabantv",
-        https://vavoo3.magnitude3.workers.dev/play/yabantv",
-        https://vavoo4.magnitude4.workers.dev/play/yabantv"
+        "https://vavoo2.magnitude2.workers.dev/play/yabantv",
+        "https://vavoo3.magnitude3.workers.dev/play/yabantv",
+        "https://vavoo4.magnitude4.workers.dev/play/yabantv"
     ],
     "koytv": [
         "https://vavoo1.magnitude.workers.dev/play/koytv",
-        https://vavoo2.magnitude2.workers.dev/play/koytv",
-        https://vavoo3.magnitude3.workers.dev/play/koytv",
-        https://vavoo4.magnitude4.workers.dev/play/koytv"
+        "https://vavoo2.magnitude2.workers.dev/play/koytv",
+        "https://vavoo3.magnitude3.workers.dev/play/koytv",
+        "https://vavoo4.magnitude4.workers.dev/play/koytv"
     ],
     "cnn": [
         "https://vavoo1.magnitude.workers.dev/play/cnn",
-        https://vavoo2.magnitude2.workers.dev/play/cnn",
-        https://vavoo3.magnitude3.workers.dev/play/cnn",
-        https://vavoo4.magnitude4.workers.dev/play/cnn"
+        "https://vavoo2.magnitude2.workers.dev/play/cnn",
+        "https://vavoo3.magnitude3.workers.dev/play/cnn",
+        "https://vavoo4.magnitude4.workers.dev/play/cnn"
     ],
     "szc": [
         "https://vavoo1.magnitude.workers.dev/play/szc",
-        https://vavoo2.magnitude2.workers.dev/play/szc",
-        https://vavoo3.magnitude3.workers.dev/play/szc",
-        https://vavoo4.magnitude4.workers.dev/play/szc"
+        "https://vavoo2.magnitude2.workers.dev/play/szc",
+        "https://vavoo3.magnitude3.workers.dev/play/szc",
+        "https://vavoo4.magnitude4.workers.dev/play/szc"
     ],
     "akit": [
         "https://vavoo1.magnitude.workers.dev/play/akit",
-        https://vavoo2.magnitude2.workers.dev/play/akit",
-        https://vavoo3.magnitude3.workers.dev/play/akit",
-        https://vavoo4.magnitude4.workers.dev/play/akit"
+        "https://vavoo2.magnitude2.workers.dev/play/akit",
+        "https://vavoo3.magnitude3.workers.dev/play/akit",
+        "https://vavoo4.magnitude4.workers.dev/play/akit"
     ]
 }
