@@ -22,10 +22,7 @@ CACHE_DURATION = 60
 M3U8_CACHE_DURATION = 300
 MAX_M3U8_CACHE = 300
 
-# Harici oynatıcılar için sıralı failover durum belleği ve 1 dakikalık kara liste
 CHANNEL_FAILOVER_STATE = {}
-STREAM_BLACKLIST = {}
-BLACKLIST_DURATION = 60  # 1 dakika (60 saniye)
 
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
@@ -127,107 +124,50 @@ def save_and_push_channels(channels):
             print(f"GitHub Sync Error: {e}")
 
 # ─────────────────────────────────────────────
-# M3U8 Çekme ve Sağlık Analizi
+# Gelişmiş M3U8 ve Gerçek Yayın Kontrolü
 # ─────────────────────────────────────────────
 
 async def fetch_m3u8(client, url, timeout_sec=5.0):
-    now = time.time()
-    if url in M3U8_CACHE:
-        content, ts, cached_elapsed = M3U8_CACHE[url]
-        if now - ts < M3U8_CACHE_DURATION:
-            return content, 200, cached_elapsed
-
     start = time.time()
     try:
         response = await client.get(url, timeout=timeout_sec, follow_redirects=True)
         elapsed = time.time() - start
         if response.status_code != 200:
             return None, response.status_code, elapsed
-        content = response.text
+        return response.text, 200, elapsed
     except Exception:
         elapsed = time.time() - start
-        raise
-
-    if len(M3U8_CACHE) >= MAX_M3U8_CACHE:
-        oldest = sorted(M3U8_CACHE.items(), key=lambda x: x[1][1])[:80]
-        for k, _ in oldest:
-            M3U8_CACHE.pop(k, None)
-
-    M3U8_CACHE[url] = (content, now, elapsed)
-    return content, 200, elapsed
-
-def analyze_manifest_health(content):
-    details = {
-        "has_target_duration": False,
-        "segment_count": 0,
-        "segment_durations_consistent": False,
-        "has_media_sequence": False,
-        "is_master": False,
-        "is_live": False,
-        "reasons": [],
-    }
-
-    if "#EXTM3U" not in content:
-        details["reasons"].append("EXTM3U başlığı yok")
-        return 0.0, details, False
-
-    has_target_duration = "#EXT-X-TARGETDURATION" in content
-    details["has_target_duration"] = has_target_duration
-    is_master = "#EXT-X-STREAM-INF" in content
-    details["is_master"] = is_master
-
-    durations = re.findall(r'#EXTINF:\s*([\d.]+)', content)
-    try:
-        durations = [float(d) for d in durations]
-    except ValueError:
-        durations = []
-
-    segment_count = len(durations)
-    details["segment_count"] = segment_count
-
-    consistent = False
-    if len(durations) >= 3:
-        avg = sum(durations) / len(durations)
-        if avg > 0:
-            variance = sum((d - avg) ** 2 for d in durations) / len(durations)
-            std_dev = variance ** 0.5
-            if std_dev / avg < 0.30:
-                consistent = True
-    details["segment_durations_consistent"] = consistent
-    details["has_media_sequence"] = "#EXT-X-MEDIA-SEQUENCE" in content
-    details["is_live"] = "#EXT-X-ENDLIST" not in content
-
-    health = 0.0
-    if has_target_duration: health += 20
-    if segment_count >= 3:
-        health += 20
-        if segment_count >= 6: health += 10
-    if consistent: health += 20
-    elif segment_count >= 3: details["reasons"].append("Segment süreleri tutarsız")
-
-    if details["has_media_sequence"]: health += 10
-    if is_master: health += 10
-    if details["is_live"]: health += 10
-
-    health = min(health, 100.0)
-    is_playable = is_master or segment_count > 0
-    return health, details, is_playable
+        return None, 500, elapsed
 
 async def check_url(client, url):
     try:
         content, status, elapsed_time = await fetch_m3u8(client, url, 5.0)
-        if status != 200 or not content:
-            return {"url": url, "ok": False, "reason": f"HTTP {status}" if status != 200 else "Boş yanıt", "score": 0, "speed": elapsed_time}
+        if status != 200 or not content or "#EXTM3U" not in content:
+            return {"url": url, "ok": False, "reason": "Manifest okunamadı veya geçersiz", "score": 0}
 
-        health_score, details, is_playable = analyze_manifest_health(content)
-        if not is_playable or health_score < 40:
-            return {"url": url, "ok": False, "reason": "Oynatılamaz veya sağlık düşük", "score": 0, "speed": elapsed_time, "health": health_score}
+        # Master m3u8 mi yoksa normal akış m3u8 mi kontrol et
+        lines = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")]
+        
+        # Eğer içeride alt m3u8 veya .ts segment linkleri varsa, bunlardan en az birini test et
+        if lines:
+            first_stream_or_segment = lines[0]
+            # Eğer relative path ise URL'yi tamamla
+            if not first_stream_or_segment.startswith("http"):
+                base_parts = url.rsplit("/", 1)[0]
+                first_stream_or_segment = f"{base_parts}/{first_stream_or_segment}"
+            
+            # Alt yayının/segmentin gerçekten yanıt verip vermediğini test et (HEAD veya kısa GET isteği)
+            sub_res = await client.head(first_stream_or_segment, timeout=3.0, follow_redirects=True)
+            if sub_res.status_code >= 400:
+                # HEAD desteklemiyorsa GET deneyelim
+                sub_res = await client.get(first_stream_or_segment, timeout=3.0, follow_redirects=True)
+                if sub_res.status_code >= 400:
+                    return {"url": url, "ok": False, "reason": "İçerik segmenti/yayını ölü (404/Hata)", "score": 0}
 
         speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
-        final_score = speed_score * 0.60 + health_score * 0.40
-        return {"url": url, "ok": True, "reason": "OK", "score": final_score, "speed": elapsed_time, "speed_score": speed_score, "health": health_score, "health_details": details}
+        return {"url": url, "ok": True, "reason": "OK", "score": speed_score, "speed": elapsed_time}
     except Exception as e:
-        return {"url": url, "ok": False, "reason": "Hata", "score": 0, "speed": 0}
+        return {"url": url, "ok": False, "reason": f"Bağlantı Hatası: {str(e)}", "score": 0}
 
 async def test_all_sources(channel_name, force=False):
     current_time = time.time()
@@ -258,55 +198,35 @@ def ping():
     return {"status": "OK"}
 
 @app.get("/play/{channel_name}")
-async def handle_stream(channel_name: str, reset: int = 0):
+async def handle_stream(channel_name: str):
     channel_name = channel_name.strip().lower()
     channels = load_channels()
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    # 1. Tüm kaynakları test et
-    results = await test_all_sources(channel_name, force=False)
+    # 1. Kaynakları test et ve sadece GERÇEKTEN çalışanları filtrele
+    results = await test_all_sources(channel_name, force=True) # Her istekte taze test için force=True yapıldı
     working = [r for r in results if r["ok"]]
     
     if not working:
         return JSONResponse({"error": f"{channel_name} için aktif yayın bulunamadı."}, status_code=503)
 
-    # 2. Kara liste (Blacklist) temizliği ve filtrelemesi (1 dakika süreyle)
-    now = time.time()
-    if channel_name in STREAM_BLACKLIST:
-        STREAM_BLACKLIST[channel_name] = {
-            url: t for url, t in STREAM_BLACKLIST[channel_name].items() 
-            if now - t < BLACKLIST_DURATION
-        }
-    else:
-        STREAM_BLACKLIST[channel_name] = {}
+    # 2. Skora göre sırala
+    working.sort(key=lambda x: x["score"], reverse=True)
+    working_urls = [w["url"] for w in working]
 
-    blacklisted_urls = STREAM_BLACKLIST[channel_name]
-    valid_working = [w for w in working if w["url"] not in blacklisted_urls]
-
-    if not valid_working:
-        STREAM_BLACKLIST[channel_name] = {}
-        valid_working = working
-
-    # 3. Skora göre sırala
-    valid_working.sort(key=lambda x: x["score"], reverse=True)
-    working_urls = [w["url"] for w in valid_working]
-
-    # 4. Round-Robin indeks yönetimi ile sıradaki farklı linki seç
-    state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "time": time.time()})
+    # 3. Round-Robin indeks yönetimi (Her istekte sıradaki farklı çalışan linke geçiş)
+    state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0})
     current_index = state["index"]
     
-    if reset == 1 or current_index >= len(working_urls):
+    if current_index >= len(working_urls):
         current_index = 0
 
     target_url = working_urls[current_index]
 
-    # Bir sonraki istekte listedeki sonraki farklı linke geçiş yapabilmesi için indeksi artır
+    # Sonraki istek için indeksi artır
     next_index = (current_index + 1) % len(working_urls)
-    CHANNEL_FAILOVER_STATE[channel_name] = {
-        "index": next_index,
-        "time": time.time()
-    }
+    CHANNEL_FAILOVER_STATE[channel_name] = {"index": next_index}
 
     return RedirectResponse(url=target_url, status_code=302)
 
@@ -366,12 +286,8 @@ async def dashboard(user: str = Depends(verify_admin)):
             .score-row.best {{ border-left-color: #22c55e; background: #052e16; }}
             .score-row.failed {{ border-left-color: #dc2626; background: #450a0a; opacity: 0.7; }}
             .score-url {{ font-family: monospace; font-size: 11px; color: #cbd5e1; word-break: break-all; }}
-            .score-stats {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 11px; }}
-            .stat {{ background: #334155; padding: 3px 8px; border-radius: 4px; color: #e2e8f0; }}
             .score-badge {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px; }}
             .score-high {{ background: #22c55e; color: #052e16; }}
-            .score-mid {{ background: #f59e0b; color: #431407; }}
-            .score-low {{ background: #6b7280; color: #0f172a; }}
             .score-fail {{ background: #dc2626; color: #ffffff; }}
             .loading {{ color: #94a3b8; font-style: italic; padding: 10px; }}
             .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }}
@@ -439,11 +355,11 @@ async def dashboard(user: str = Depends(verify_admin)):
                         html += '<div class="score-row ' + cssClass + '">';
                         html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:6px;">';
                         html += '<strong>#' + (idx+1) + ' ';
-                        if (isBest) html += '🏆 EN İYİ ';
+                        if (isBest) html += '🏆 SEÇİLEN ';
                         if (!r.ok) html += '❌ ';
                         html += 'Skor: ' + r.score.toFixed(1) + '</strong>';
                         if (r.ok) {{
-                            html += '<span class="score-badge">ÇOK İYİ</span>';
+                            html += '<span class="score-badge score-high">ÇALIŞIYOR ✅</span>';
                         }} else {{
                             html += '<span class="score-badge score-fail">' + r.reason + '</span>';
                         }}
@@ -471,11 +387,10 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">1 Dakikalık Kara Liste ve Sıralı Failover Aktif</p>
+            <p class="subtitle">Gerçek Segment Kontrollü & Rotasyonlu Failover Modu Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
-                <div class="stat-item"><strong>{m3u8_cache_count}</strong>M3U8 Cache</div>
                 <div class="stat-item"><a href="/playlist.m3u" target="_blank">📥 M3U Çalma Listesini İndir</a></div>
             </div>
 
@@ -549,12 +464,10 @@ async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), ur
             del channels[old_name]
             SCORE_CACHE.pop(old_name, None)
             CHANNEL_FAILOVER_STATE.pop(old_name, None)
-            STREAM_BLACKLIST.pop(old_name, None)
 
         channels[channel_name] = parsed_urls
         SCORE_CACHE.pop(channel_name, None)
         CHANNEL_FAILOVER_STATE.pop(channel_name, None)
-        STREAM_BLACKLIST.pop(channel_name, None)
 
         await asyncio.to_thread(save_and_push_channels, channels)
 
@@ -568,7 +481,6 @@ async def admin_delete(channel_name: str, user: str = Depends(verify_admin)):
         del channels[channel_name]
         SCORE_CACHE.pop(channel_name, None)
         CHANNEL_FAILOVER_STATE.pop(channel_name, None)
-        STREAM_BLACKLIST.pop(channel_name, None)
         await asyncio.to_thread(save_and_push_channels, channels)
 
     return RedirectResponse(url="/admin", status_code=303)
