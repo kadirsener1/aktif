@@ -156,7 +156,10 @@
         "https://vavoo4.ogrenci.workers.dev/play/eurosport2"
     ],
     "yabantv": [
-        "https://vavoo1.magnitude.workers.dev/play/yabantv"
+        "https://vavoo1.magnitude.workers.dev/play/yabantv",
+        "https://vavoo2.magnitude2.workers.dev/play/yabantv",
+        "https://vavoo3.magnitude3.workers.dev/play/yabantv",
+        "https://vavoo4.ogrenci.workers.dev/play/yabantv"
     ],
     "koytv": [
         "https://vavoo1.magnitude.workers.dev/play/koytv"
