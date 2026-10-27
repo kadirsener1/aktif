@@ -86,6 +86,11 @@
         "https://vavoo.to/vavoo-iptv/play/41600224142533e27b97d9",
         "https://vavoo.to/vavoo-iptv/play/3202905239f7c8981cff1"
     ],
+     "ssport2": [
+        "https://vavoo.to/vavoo-iptv/play/1313768516926dc999c43b",
+         "https://vavoo.to/vavoo-iptv/play/1234604880d226de6d47be",
+         "https://vavoo.to/vavoo-iptv/play/9369082742fdb8ca83c62"   
+    ],
       "eurosport1": [
         "https://vavoo.to/vavoo-iptv/play/34586314617a4110b16336",
         "https://vavoo.to/vavoo-iptv/play/3271328843ca1abfbfa420",
@@ -96,5 +101,11 @@
         "https://vavoo.to/vavoo-iptv/play/223746421983f4d7bb23cf",
         "https://vavoo.to/vavoo-iptv/play/1821942247abefa6aae14b"
     ]
+     "yabantv": [
+        "https://vavoo.to/vavoo-iptv/play/3338159581a989d003ec5a",
+        "https://vavoo.to/vavoo-iptv/play/42046159902bf40614cf6e",
+        "https://vavoo.to/vavoo-iptv/play/178850393550c13d869fbf"
+    ],
+    
      
 }
