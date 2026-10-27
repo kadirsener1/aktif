@@ -22,8 +22,6 @@ M3U8_CACHE_DURATION = 300
 MAX_M3U8_CACHE = 300
 
 CHANNEL_FAILOVER_STATE = {}
-
-# 🟢 YENİ: Donan/bozuk çıkan linkleri otomatik yakalayıp 1 dakika kara listede tutacak hafıza
 STREAM_BLACKLIST = {}
 BLACKLIST_DURATION = 60  # 1 dakika
 
@@ -186,7 +184,7 @@ def ping():
     return {"status": "OK"}
 
 @app.get("/play/{channel_name}")
-async def handle_stream(channel_name: str, retry: int = 0):
+async def handle_stream(channel_name: str):
     channel_name = channel_name.strip().lower()
     channels = load_channels()
     if channel_name not in channels:
@@ -210,13 +208,11 @@ async def handle_stream(channel_name: str, retry: int = 0):
     results = await test_all_sources(channel_name, force=True)
     working_dict = {r["url"]: r["score"] for r in results if r["ok"]}
 
-    # Kullanıcının paneldeki sırasına göre çalışan ve KARALİSTEDE OLMAYANLARI al
     ordered_working_urls = [
         url for url in original_sources 
         if url in working_dict and url not in blacklisted_urls
     ]
 
-    # Eğer karalisteye takılmaktan dolayı hiç geçerli link kalmadıysa, mecburen karalisteyi esnet/sıfırla
     if not ordered_working_urls:
         STREAM_BLACKLIST[channel_name] = {}
         ordered_working_urls = [url for url in original_sources if url in working_dict]
@@ -227,12 +223,8 @@ async def handle_stream(channel_name: str, retry: int = 0):
     # 3. İndeks yönetimi ve Akıllı Donma Yakalama (Runtime Failover)
     state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "last_request": 0, "url": None})
     
-    # 💡 ÖNEMLİ MANTIK: Eğer kullanıcı aynı kanalı çok kısa süre içinde (örneğin 30 saniye içinde) 
-    # tekrar açıyorsa, bu önceki yayın donduğu / bozuk olduğu anlamına gelir!
     if state["url"] and (now - state["last_request"] < 30):
-        # Donduğu anlaşılan bu bozuk linki anında 1 dakikalık karalisteye al!
         STREAM_BLACKLIST[channel_name][state["url"]] = now
-        # Sıradaki bir sonraki sağlam linke geç
         current_index = (state["index"] + 1) % len(ordered_working_urls)
     else:
         current_index = state["index"]
@@ -242,7 +234,6 @@ async def handle_stream(channel_name: str, retry: int = 0):
 
     target_url = ordered_working_urls[current_index]
 
-    # Durumu güncelle
     CHANNEL_FAILOVER_STATE[channel_name] = {
         "index": current_index,
         "last_request": now,
@@ -250,6 +241,15 @@ async def handle_stream(channel_name: str, retry: int = 0):
     }
 
     return RedirectResponse(url=target_url, status_code=302)
+
+# 🟢 YENİ: Karalisteyi ve durum hafızasını sıfırlayan endpoint
+@app.get("/admin/reset-blacklist")
+async def reset_blacklist(user: str = Depends(verify_admin)):
+    STREAM_BLACKLIST.clear()
+    CHANNEL_FAILOVER_STATE.clear()
+    SCORE_CACHE.clear()
+    M3U8_CACHE.clear()
+    return RedirectResponse(url="/admin", status_code=303)
 
 @app.get("/playlist.m3u")
 def generate_m3u(request: Request):
@@ -272,6 +272,7 @@ async def dashboard(user: str = Depends(verify_admin)):
     channels = load_channels()
     channels_json_esc = json.dumps(channels, ensure_ascii=False)
     m3u8_cache_count = len(M3U8_CACHE)
+    blacklisted_total = sum(len(v) for v in STREAM_BLACKLIST.values())
 
     html = f"""
     <!DOCTYPE html>
@@ -294,6 +295,8 @@ async def dashboard(user: str = Depends(verify_admin)):
             .btn-warning:hover {{ background: #b45309; }}
             .btn-test {{ background: #7c3aed; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
             .btn-test:hover {{ background: #6d28d9; }}
+            .btn-reset {{ background: #ea580c; padding: 10px 15px; font-size: 13px; font-weight: bold; border-radius: 6px; text-decoration: none; display: inline-block; color: white; }}
+            .btn-reset:hover {{ background: #c2410c; }}
             .btn-secondary {{ background: #475569; padding: 6px 12px; font-size: 12px; margin-left: 10px; display: none; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; vertical-align: top; }}
@@ -311,7 +314,7 @@ async def dashboard(user: str = Depends(verify_admin)):
             .score-high {{ background: #22c55e; color: #052e16; }}
             .score-fail {{ background: #dc2626; color: #ffffff; }}
             .loading {{ color: #94a3b8; font-style: italic; padding: 10px; }}
-            .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }}
+            .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }}
             .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
             .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
         </style>
@@ -407,11 +410,13 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Donma / Takılma Algılayan Akıllı Failover Modu Aktif</p>
+            <p class="subtitle">Karalisteli & Donma Korumalı Akıllı Failover Modu Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
+                <div class="stat-item"><strong>{blacklisted_total}</strong>Karalistede Yayın</div>
                 <div class="stat-item"><a href="/playlist.m3u" target="_blank">📥 M3U Çalma Listesini İndir</a></div>
+                <a href="/admin/reset-blacklist" class="btn-reset" onclick="return confirm('Tüm karalisteyi ve akış önbelleğini sıfırlamak istediğinize emin misiniz?')">🗑️ Karalisteyi ve Önbelleği Temizle</a>
             </div>
 
             <div class="card">
