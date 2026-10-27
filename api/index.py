@@ -124,7 +124,7 @@ def save_and_push_channels(channels):
             print(f"GitHub Sync Error: {e}")
 
 # ─────────────────────────────────────────────
-# Gelişmiş M3U8 ve Gerçek Yayın Kontrolü
+# M3U8 Çekme ve Sağlık Analizi
 # ─────────────────────────────────────────────
 
 async def fetch_m3u8(client, url, timeout_sec=5.0):
@@ -142,32 +142,15 @@ async def fetch_m3u8(client, url, timeout_sec=5.0):
 async def check_url(client, url):
     try:
         content, status, elapsed_time = await fetch_m3u8(client, url, 5.0)
+        # HTTP 200 dönüyorsa ve içeriğinde M3U imzası varsa doğrudan geçerli sayıyoruz
         if status != 200 or not content or "#EXTM3U" not in content:
-            return {"url": url, "ok": False, "reason": "Manifest okunamadı veya geçersiz", "score": 0}
+            return {"url": url, "ok": False, "reason": f"HTTP {status}" if status != 200 else "Geçersiz Manifest", "score": 0}
 
-        # Master m3u8 mi yoksa normal akış m3u8 mi kontrol et
-        lines = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")]
-        
-        # Eğer içeride alt m3u8 veya .ts segment linkleri varsa, bunlardan en az birini test et
-        if lines:
-            first_stream_or_segment = lines[0]
-            # Eğer relative path ise URL'yi tamamla
-            if not first_stream_or_segment.startswith("http"):
-                base_parts = url.rsplit("/", 1)[0]
-                first_stream_or_segment = f"{base_parts}/{first_stream_or_segment}"
-            
-            # Alt yayının/segmentin gerçekten yanıt verip vermediğini test et (HEAD veya kısa GET isteği)
-            sub_res = await client.head(first_stream_or_segment, timeout=3.0, follow_redirects=True)
-            if sub_res.status_code >= 400:
-                # HEAD desteklemiyorsa GET deneyelim
-                sub_res = await client.get(first_stream_or_segment, timeout=3.0, follow_redirects=True)
-                if sub_res.status_code >= 400:
-                    return {"url": url, "ok": False, "reason": "İçerik segmenti/yayını ölü (404/Hata)", "score": 0}
-
+        # Hız skoru hesaplama
         speed_score = max(0.0, 100.0 - elapsed_time * 28.0)
         return {"url": url, "ok": True, "reason": "OK", "score": speed_score, "speed": elapsed_time}
     except Exception as e:
-        return {"url": url, "ok": False, "reason": f"Bağlantı Hatası: {str(e)}", "score": 0}
+        return {"url": url, "ok": False, "reason": "Bağlantı Hatası", "score": 0}
 
 async def test_all_sources(channel_name, force=False):
     current_time = time.time()
@@ -204,8 +187,8 @@ async def handle_stream(channel_name: str):
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    # 1. Kaynakları test et ve sadece GERÇEKTEN çalışanları filtrele
-    results = await test_all_sources(channel_name, force=True) # Her istekte taze test için force=True yapıldı
+    # 1. Kaynakları test et ve çalışanları al
+    results = await test_all_sources(channel_name, force=True)
     working = [r for r in results if r["ok"]]
     
     if not working:
@@ -215,7 +198,7 @@ async def handle_stream(channel_name: str):
     working.sort(key=lambda x: x["score"], reverse=True)
     working_urls = [w["url"] for w in working]
 
-    # 3. Round-Robin indeks yönetimi (Her istekte sıradaki farklı çalışan linke geçiş)
+    # 3. Her istekte sıradaki farklı çalışan linke geçiş (Rotasyon)
     state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0})
     current_index = state["index"]
     
@@ -387,7 +370,7 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Gerçek Segment Kontrollü & Rotasyonlu Failover Modu Aktif</p>
+            <p class="subtitle">Stabil Çalışan Rotasyonlu Failover Modu Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
@@ -466,8 +449,8 @@ async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), ur
             CHANNEL_FAILOVER_STATE.pop(old_name, None)
 
         channels[channel_name] = parsed_urls
-        SCORE_CACHE.pop(channel_name, None)
-        CHANNEL_FAILOVER_STATE.pop(channel_name, None)
+        SCORE_CACHE.pop(old_name, None)
+        CHANNEL_FAILOVER_STATE.pop(old_name, None)
 
         await asyncio.to_thread(save_and_push_channels, channels)
 
