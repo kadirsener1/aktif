@@ -5,6 +5,12 @@
         "https://vavoo3.magnitude3.workers.dev/play/atv",
         "https://vavoo4.ogrenci.workers.dev/play/atv"
     ],
+    "atv2": [
+        "https://vavoo1.magnitude.workers.dev/play/atv",
+        "https://vavoo2.magnitude2.workers.dev/play/atv",
+        "https://vavoo3.magnitude3.workers.dev/play/atv",
+        "https://vavoo4.ogrenci.workers.dev/play/atv"
+    ],
     "now": [
         "https://vavoo1.magnitude.workers.dev/play/now",
         "https://vavoo2.magnitude2.workers.dev/play/now",
