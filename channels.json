@@ -17,7 +17,7 @@
         "https://vavoo3.magnitude3.workers.dev/play/now",
         "https://vavoo4.ogrenci.workers.dev/play/now"
     ],
-        "now2": [
+    "now2": [
         "https://vavoo1.magnitude.workers.dev/play/now",
         "https://vavoo2.magnitude2.workers.dev/play/now",
         "https://vavoo3.magnitude3.workers.dev/play/now",
