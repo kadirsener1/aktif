@@ -1,5 +1,6 @@
 {
     "atv": [
+        "https://vavoo1.magnitude.workers.dev/manifest.m3u8?url=https://vavoo.to/vavoo-iptv/play/962169494c61eb5a2ee2f",
         "https://vavoo1.magnitude.workers.dev/play/atv",
         "https://vavoo2.magnitude.workers.dev/play/atv",
         "https://vavoo3.magnitude.workers.dev/play/atv",
