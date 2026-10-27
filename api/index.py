@@ -22,8 +22,10 @@ CACHE_DURATION = 60
 M3U8_CACHE_DURATION = 300
 MAX_M3U8_CACHE = 300
 
-# Harici oynatıcılar (VLC, IPTV Smarters vb.) için sıralı failover durum belleği
+# Harici oynatıcılar için sıralı failover durum belleği ve 1 dakikalık kara liste
 CHANNEL_FAILOVER_STATE = {}
+STREAM_BLACKLIST = {}
+BLACKLIST_DURATION = 60  # 1 dakika (60 saniye)
 
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
@@ -247,15 +249,6 @@ async def test_all_sources(channel_name, force=False):
     SCORE_CACHE[channel_name] = {"time": current_time, "results": results}
     return results
 
-async def get_ordered_working_sources(channel_name):
-    results = await test_all_sources(channel_name, force=False)
-    working = [r for r in results if r["ok"]]
-    if not working:
-        return []
-    # En yüksek skordan en düşüğe sırala
-    working.sort(key=lambda x: x["score"], reverse=True)
-    return [w["url"] for w in working]
-
 # ─────────────────────────────────────────────
 # Endpoint'ler
 # ─────────────────────────────────────────────
@@ -271,13 +264,35 @@ async def handle_stream(channel_name: str, reset: int = 0):
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    # Çalışan tüm kaynakları skora göre sıralı al
-    working_urls = await get_ordered_working_sources(channel_name)
+    # 1. Tüm kaynakları test et
+    results = await test_all_sources(channel_name, force=False)
+    working = [r for r in results if r["ok"]]
     
-    if not working_urls:
+    if not working:
         return JSONResponse({"error": f"{channel_name} için aktif yayın bulunamadı."}, status_code=503)
 
-    # Bu kanal için mevcut index durumunu al
+    # 2. Kara liste (Blacklist) temizliği ve filtrelemesi (1 dakika süreyle)
+    now = time.time()
+    if channel_name in STREAM_BLACKLIST:
+        STREAM_BLACKLIST[channel_name] = {
+            url: t for url, t in STREAM_BLACKLIST[channel_name].items() 
+            if now - t < BLACKLIST_DURATION
+        }
+    else:
+        STREAM_BLACKLIST[channel_name] = {}
+
+    blacklisted_urls = STREAM_BLACKLIST[channel_name]
+    valid_working = [w for w in working if w["url"] not in blacklisted_urls]
+
+    if not valid_working:
+        STREAM_BLACKLIST[channel_name] = {}
+        valid_working = working
+
+    # 3. Skora göre sırala
+    valid_working.sort(key=lambda x: x["score"], reverse=True)
+    working_urls = [w["url"] for w in valid_working]
+
+    # 4. Round-Robin indeks yönetimi ile sıradaki farklı linki seç
     state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "time": time.time()})
     current_index = state["index"]
     
@@ -286,7 +301,7 @@ async def handle_stream(channel_name: str, reset: int = 0):
 
     target_url = working_urls[current_index]
 
-    # Sonraki bağlantı denemesinde / hata durumunda bir sonraki çalışan kaynağa geç (Round-Robin / Failover)
+    # Bir sonraki istekte listedeki sonraki farklı linke geçiş yapabilmesi için indeksi artır
     next_index = (current_index + 1) % len(working_urls)
     CHANNEL_FAILOVER_STATE[channel_name] = {
         "index": next_index,
@@ -343,7 +358,6 @@ async def dashboard(user: str = Depends(verify_admin)):
             th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; vertical-align: top; }}
             th {{ background: #0f172a; color: #38bdf8; font-weight: 600; }}
             tr:last-child td {{ border-bottom: none; }}
-            .badge-cached {{ background: #1e3a8a; color: #60a5fa; padding: 4px 8px; border-radius: 4px; font-size: 12px; }}
             a {{ color: #38bdf8; text-decoration: none; }}
             a:hover {{ text-decoration: underline; }}
             .score-detail {{ display: none; background: #0f172a; padding: 12px; border-radius: 6px; margin-top: 8px; }}
@@ -363,8 +377,6 @@ async def dashboard(user: str = Depends(verify_admin)):
             .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }}
             .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
             .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
-            .health-bar {{ display: inline-block; width: 60px; height: 6px; background: #334155; border-radius: 3px; overflow: hidden; vertical-align: middle; margin-left: 4px; }}
-            .health-bar-fill {{ height: 100%; }}
         </style>
         <script>
             const allChannels = {channels_json_esc};
@@ -404,33 +416,6 @@ async def dashboard(user: str = Depends(verify_admin)):
                 }}
             }}
 
-            function scoreBadge(score) {{
-                if (score >= 75) return "score-high";
-                if (score >= 55) return "score-mid";
-                return "score-low";
-            }}
-
-            function scoreLabel(score) {{
-                if (score >= 75) return "ÇOK İYİ ✅";
-                if (score >= 55) return "İYİ 👍";
-                if (score >= 35) return "ORTA ⚠️";
-                return "ZAYIF ⚠️";
-            }}
-
-            function statClass(value, good, mid) {{
-                if (value >= good) return "good";
-                if (value >= mid) return "mid";
-                return "bad";
-            }}
-
-            function healthBar(score) {{
-                let color = "#6b7280";
-                if (score >= 75) color = "#22c55e";
-                else if (score >= 55) color = "#f59e0b";
-                else if (score >= 40) color = "#ef4444";
-                return '<span class="health-bar"><span class="health-bar-fill" style="width:' + score + '%; background:' + color + ';"></span></span>';
-            }}
-
             async function testChannel(name) {{
                 const container = document.getElementById('scores-' + name);
                 container.classList.add('open');
@@ -458,18 +443,12 @@ async def dashboard(user: str = Depends(verify_admin)):
                         if (!r.ok) html += '❌ ';
                         html += 'Skor: ' + r.score.toFixed(1) + '</strong>';
                         if (r.ok) {{
-                            html += '<span class="score-badge ' + scoreBadge(r.score) + '">' + scoreLabel(r.score) + '</span>';
+                            html += '<span class="score-badge">ÇOK İYİ</span>';
                         }} else {{
                             html += '<span class="score-badge score-fail">' + r.reason + '</span>';
                         }}
                         html += '</div>';
                         html += '<div class="score-url">' + r.url + '</div>';
-                        if (r.ok) {{
-                            html += '<div class="score-stats">';
-                            html += '<span class="stat">Hız: ' + (r.speed*1000).toFixed(0) + ' ms</span>';
-                            html += '<span class="stat">Yapı: ' + r.health.toFixed(0) + healthBar(r.health) + '</span>';
-                            html += '</div>';
-                        }}
                         html += '</div>';
                     }});
 
@@ -492,7 +471,7 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Vercel Serverless & Sıralı Failover Modu Aktif</p>
+            <p class="subtitle">1 Dakikalık Kara Liste ve Sıralı Failover Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
@@ -570,10 +549,12 @@ async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), ur
             del channels[old_name]
             SCORE_CACHE.pop(old_name, None)
             CHANNEL_FAILOVER_STATE.pop(old_name, None)
+            STREAM_BLACKLIST.pop(old_name, None)
 
         channels[channel_name] = parsed_urls
         SCORE_CACHE.pop(channel_name, None)
         CHANNEL_FAILOVER_STATE.pop(channel_name, None)
+        STREAM_BLACKLIST.pop(channel_name, None)
 
         await asyncio.to_thread(save_and_push_channels, channels)
 
@@ -587,6 +568,7 @@ async def admin_delete(channel_name: str, user: str = Depends(verify_admin)):
         del channels[channel_name]
         SCORE_CACHE.pop(channel_name, None)
         CHANNEL_FAILOVER_STATE.pop(channel_name, None)
+        STREAM_BLACKLIST.pop(channel_name, None)
         await asyncio.to_thread(save_and_push_channels, channels)
 
     return RedirectResponse(url="/admin", status_code=303)
