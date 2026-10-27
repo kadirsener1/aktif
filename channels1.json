@@ -87,6 +87,9 @@
         "https://vavoo.to/vavoo-iptv/play/3202905239f7c8981cff1"
     ],
      "ssport2": [
+        "https://vavoo.to/vavoo-iptv/play/394365103048c3f48946a4",
+         "https://vavoo.to/vavoo-iptv/play/20381615174598b818f74c",
+         "https://vavoo.to/vavoo-iptv/play/26439990320f2e0b009aff",
         "https://vavoo.to/vavoo-iptv/play/1313768516926dc999c43b",
          "https://vavoo.to/vavoo-iptv/play/1234604880d226de6d47be",
          "https://vavoo.to/vavoo-iptv/play/9369082742fdb8ca83c62"   
@@ -100,12 +103,19 @@
         "https://vavoo.to/vavoo-iptv/play/2307325429068c8e128ae6",
         "https://vavoo.to/vavoo-iptv/play/223746421983f4d7bb23cf",
         "https://vavoo.to/vavoo-iptv/play/1821942247abefa6aae14b"
-    ]
+    ],
      "yabantv": [
         "https://vavoo.to/vavoo-iptv/play/3338159581a989d003ec5a",
         "https://vavoo.to/vavoo-iptv/play/42046159902bf40614cf6e",
         "https://vavoo.to/vavoo-iptv/play/178850393550c13d869fbf"
     ],
+     "koytv": [
+        "https://vavoo.to/vavoo-iptv/play/685300988b10d8590b08d",
+        "https://vavoo.to/vavoo-iptv/play/870320507489feac51e9a"
+    ],
+     "tarımtv": [
+        "https://vavoo.to/vavoo-iptv/play/3338159581a989d003ec5a"
+    ]
     
      
 }
