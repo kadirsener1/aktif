@@ -137,46 +137,11 @@ async def handle_stream(channel_name: str):
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    # 4 Worker sunucusundan yük dağılımı (Load Balancing) için rastgele seçiyoruz
+    # 4 Worker sunucusundan rastgele seçim (Load Balancing)
     chosen_worker = random.choice(WORKER_SERVERS)
     target_url = f"{chosen_worker}{channel_name}"
 
     return RedirectResponse(url=target_url, status_code=302)
-
-# Worker'ların durumunu test eden admin endpoint'i
-@app.get("/admin/test-workers/{channel_name}")
-async def admin_test_workers(channel_name: str, user: str = Depends(verify_admin)):
-    channel_name = channel_name.strip().lower()
-    channels = load_channels()
-    if channel_name not in channels:
-        return JSONResponse({"error": "Kanal bulunamadı"}, status_code=404)
-
-    results = []
-    async with httpx.AsyncClient() as client:
-        for worker_base in WORKER_SERVERS:
-            test_url = f"{worker_base}{channel_name}"
-            start = time.time()
-            try:
-                # Sadece başlığı veya hızlı yanıtı kontrol ediyoruz (follow_redirects=False çünkü 302 dönecek)
-                response = await client.head(test_url, timeout=4.0, follow_redirects=False)
-                elapsed = time.time() - start
-                # Worker 302 veya 200 dönerse başarılı sayılır
-                ok = response.status_code in [200, 302, 307]
-                results.append({
-                    "worker": worker_base.split('/')[2],
-                    "ok": ok,
-                    "status": response.status_code,
-                    "latency": round(elapsed * 1000, 1)
-                })
-            except Exception:
-                results.append({
-                    "worker": worker_base.split('/')[2],
-                    "ok": False,
-                    "status": 500,
-                    "latency": 0
-                })
-
-    return {"channel": channel_name, "results": results}
 
 @app.get("/playlist.m3u")
 def generate_m3u(request: Request):
@@ -239,6 +204,12 @@ async def dashboard(user: str = Depends(verify_admin)):
         </style>
         <script>
             const allChannels = {channels_json_esc};
+            const workerServers = [
+                "https://vavoo1.magnitude.workers.dev/play/",
+                "https://vavoo2.magnitude2.workers.dev/play/",
+                "https://vavoo3.magnitude3.workers.dev/play/",
+                "https://vavoo4.ogrenci.workers.dev/play/"
+            ];
 
             function editChannel(name) {{
                 const urls = allChannels[name];
@@ -282,34 +253,36 @@ async def dashboard(user: str = Depends(verify_admin)):
                 container.classList.add('open');
                 container.innerHTML = '<div class="loading">🔄 4 Worker sunucusu test ediliyor...</div>';
 
-                try {{
-                    const res = await fetch('/admin/test-workers/' + encodeURIComponent(name));
-                    if (!res.ok) throw new Error('Sunucu hatası');
-                    const data = await res.json();
+                let html = '<div style="margin-bottom:6px; color:#94a3b8; font-size:11px;">⚡ Cloudflare Worker Yanıt Durumları:</div>';
 
-                    if (!data.results || data.results.length === 0) {{
-                        container.innerHTML = '<div class="loading">⚠️ Sonuç alınamadı.</div>';
-                        return;
+                // Tarayıcıdan paralel olarak worker'ları test et
+                const promises = workerServers.map(async (workerBase) => {{
+                    const testUrl = workerBase + encodeURIComponent(name);
+                    const start = performance.now();
+                    try {{
+                        const response = await fetch(testUrl, {{ method: 'HEAD', mode: 'no-cors' }});
+                        const latency = Math.round(performance.now() - start);
+                        return {{ worker: workerBase.split('/')[2], ok: true, latency }};
+                    }} catch (err) {{
+                        return {{ worker: workerBase.split('/')[2], ok: false, latency: 0 }};
                     }}
+                }});
 
-                    let html = '<div style="margin-bottom:6px; color:#94a3b8; font-size:11px;">⚡ Cloudflare Worker Yanıt Durumları:</div>';
+                const results = await Promise.all(promises);
 
-                    data.results.forEach((r) => {{
-                        const cssClass = r.ok ? 'ok' : 'fail';
-                        html += '<div class="worker-row ' + cssClass + '">';
-                        html += '<span><strong>' + r.worker + '</strong></span>';
-                        if (r.ok) {{
-                            html += '<span style="color:#22c55e;">ÇALIŞIYOR ✅ (' + r.latency + 'ms)</span>';
-                        }} else {{
-                            html += '<span style="color:#dc2626;">HATA ❌ (HTTP ' + r.status + ')</span>';
-                        }}
-                        html += '</div>';
-                    }});
+                results.forEach((r) => {{
+                    const cssClass = r.ok ? 'ok' : 'fail';
+                    html += '<div class="worker-row ' + cssClass + '">';
+                    html += '<span><strong>' + r.worker + '</strong></span>';
+                    if (r.ok) {{
+                        html += '<span style="color:#22c55e;">ERİŞİLEBİLİR ✅ (' + r.latency + 'ms)</span>';
+                    }} else {{
+                        html += '<span style="color:#dc2626;">BAĞLANTI HATASI ❌</span>';
+                    }}
+                    html += '</div>';
+                }});
 
-                    container.innerHTML = html;
-                }} catch (e) {{
-                    container.innerHTML = '<div class="loading">❌ Test sırasında hata oluştu</div>';
-                }}
+                container.innerHTML = html;
             }}
 
             function toggleWorkers(name) {{
@@ -327,7 +300,7 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Worker Admin Paneli</h1>
-            <p class="subtitle">Cloudflare Worker Load Balancer & Durum Kontrolü Aktif</p>
+            <p class="subtitle">Cloudflare Worker Load Balancer & Tarayıcı Tabanlı Test Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
