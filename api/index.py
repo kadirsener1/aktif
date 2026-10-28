@@ -17,10 +17,10 @@ _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
 
 # BURAYA KENDİ CLOUDFLARE WORKER URL'NİZİ YAZIN (Sonunda /play/ olmalı)
-WORKER_SERVERS = [
-    "https://vavoo1.magnitude.workers.dev/play/",
-    # Dilerseniz yedek worker'lar ekleyebilirsiniz:
-    # "https://vavoo2.magnitude2.workers.dev/play/"
+WORKER_SERVERS = oo1.magnitude.workers.dev/play/",
+    "https://vavoo2.magnitude2.workers.dev/play/",
+    "https://vavoo3.magnitude3.workers.dev/play/",
+    "https://vavoo4.ogrenci.workers.dev/play/"
 ]
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
