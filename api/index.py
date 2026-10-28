@@ -10,10 +10,12 @@ import base64
 from html import escape
 import httpx
 import secrets
+import random
 
 app = FastAPI()
 
-CONFIG_FILE = "channels.json"
+# Eğer dosya adınız channels1.json ise burayı güncelleyebilirsiniz, aksi halde CONFIG_FILE = "channels.json" kalabilir
+CONFIG_FILE = "channels1.json"
 STREAM_CACHE = {}
 SCORE_CACHE = {}
 M3U8_CACHE = {}
@@ -24,6 +26,14 @@ MAX_M3U8_CACHE = 300
 CHANNEL_FAILOVER_STATE = {}
 STREAM_BLACKLIST = {}
 BLACKLIST_DURATION = 60  # 1 dakika
+
+# 4 Farklı Worker Sunucusu Listesi
+WORKER_SERVERS = [
+    "https://vavoo1.magnitude.workers.dev/play/",
+    "https://vavoo2.magnitude2.workers.dev/play/",
+    "https://vavoo3.magnitude3.workers.dev/play/",
+    "https://vavoo4.ogrenci.workers.dev/play/"
+]
 
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
@@ -114,7 +124,7 @@ def save_and_push_channels(channels):
             cs = json.dumps(channels, ensure_ascii=False, indent=4)
             ce = base64.b64encode(cs.encode("utf-8")).decode("utf-8")
             data = {
-                "message": "Vercel admin panelinden channels.json güncellendi",
+                "message": "Vercel admin panelinden channels1.json güncellendi",
                 "content": ce,
             }
             if sha:
@@ -229,15 +239,26 @@ async def handle_stream(channel_name: str):
     if current_index >= len(ordered_working_urls):
         current_index = 0
 
-    target_url = ordered_working_urls[current_index]
+    # channels1.json içerisindeki en iyi/çalışan hedef ham m3u8 linki
+    target_raw_url = ordered_working_urls[current_index]
 
     CHANNEL_FAILOVER_STATE[channel_name] = {
         "index": current_index,
         "last_request": now,
-        "url": target_url
+        "url": target_raw_url
     }
 
-    return RedirectResponse(url=target_url, status_code=302)
+    # 4 farklı worker sunucusundan rastgele veya sırayla bir tanesini seç
+    chosen_worker = random.choice(WORKER_SERVERS)
+
+    # Worker'ınız ham linki direkt sonuna eklemenizi bekliyorsa (örneğin URL encoding ile):
+    final_redirect_url = f"{chosen_worker}{target_raw_url}"
+    
+    # Alternatif olarak eğer worker base64 encode edilmiş link bekliyorsa şunu açabilirsiniz:
+    # encoded_url = base64.urlsafe_b64encode(target_raw_url.encode("utf-8")).decode("utf-8")
+    # final_redirect_url = f"{chosen_worker}{encoded_url}"
+
+    return RedirectResponse(url=final_redirect_url, status_code=302)
 
 @app.get("/admin/reset-blacklist")
 async def reset_blacklist(user: str = Depends(verify_admin)):
@@ -356,17 +377,15 @@ async def dashboard(user: str = Depends(verify_admin)):
                 if (!container) return;
                 
                 container.classList.add('open');
-                container.innerHTML = '<div class="loading">🔄 Linkler test ediliyor (bu birkaç saniye sürebilir)...</div>';
+                container.innerHTML = '<div class="loading">🔄 Linkler test ediliyor...</div>';
 
                 try {{
                     const res = await fetch('/admin/test/' + encodeURIComponent(name));
-                    if (!res.ok) {{
-                        throw new Error('Sunucu yanıt vermedi (HTTP ' + res.status + ')');
-                    }}
+                    if (!res.ok) throw new Error('Sunucu hatası');
                     const data = await res.json();
 
                     if (!data.results || data.results.length === 0) {{
-                        container.innerHTML = '<div class="loading">⚠️ Test edilecek kaynak bulunamadı.</div>';
+                        container.innerHTML = '<div class="loading">⚠️ Sonuç yok.</div>';
                         return;
                     }}
 
@@ -393,7 +412,7 @@ async def dashboard(user: str = Depends(verify_admin)):
 
                     container.innerHTML = html;
                 }} catch (e) {{
-                    container.innerHTML = '<div class="loading">❌ Hata oluştu: ' + e.message + '</div>';
+                    container.innerHTML = '<div class="loading">❌ Hata oluştu</div>';
                 }}
             }}
 
@@ -412,13 +431,13 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Karalisteli & Donma Korumalı Akıllı Failover Modu Aktif</p>
+            <p class="subtitle">Çoklu Worker Yük Dağılımlı & Karalisteli Failover Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
                 <div class="stat-item"><strong>{blacklisted_total}</strong>Karalistede Yayın</div>
                 <div class="stat-item"><a href="/playlist.m3u" target="_blank">📥 M3U Çalma Listesini İndir</a></div>
-                <a href="/admin/reset-blacklist" class="btn-reset" onclick="return confirm('Tüm karalisteyi ve akış önbelleğini sıfırlamak istediğinize emin misiniz?')">🗑️ Karalisteyi ve Önbelleği Temizle</a>
+                <a href="/admin/reset-blacklist" class="btn-reset" onclick="return confirm('Tüm karalisteyi ve önbelleği sıfırlamak istediğinize emin misiniz?')">🗑️ Karalisteyi Temizle</a>
             </div>
 
             <div class="card">
