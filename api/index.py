@@ -16,8 +16,9 @@ CONFIG_FILE = "channels1.json"
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
 
-# BURAYA KENDİ CLOUDFLARE WORKER URL'NİZİ YAZIN (Sonunda /play/ olmalı)
-WORKER_SERVERS = oo1.magnitude.workers.dev/play/",
+# Belirttiğiniz 4 Cloudflare Worker Sunucusu
+WORKER_SERVERS = [
+    "https://vavoo1.magnitude.workers.dev/play/",
     "https://vavoo2.magnitude2.workers.dev/play/",
     "https://vavoo3.magnitude3.workers.dev/play/",
     "https://vavoo4.ogrenci.workers.dev/play/"
@@ -134,11 +135,10 @@ async def handle_stream(channel_name: str):
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    # İstek geldiğinde Cloudflare Worker adresine yönlendiriyoruz
+    # 4 Worker arasından rastgele seçim yaparak yükü dağıtıyoruz (Load Balancing)
     chosen_worker = random.choice(WORKER_SERVERS)
     target_url = f"{chosen_worker}{channel_name}"
 
-    # Worker, kanalı channels1.json'dan okuyup çözer ve oynatılabilir yayına redirect atar
     return RedirectResponse(url=target_url, status_code=302)
 
 @app.get("/playlist.m3u")
@@ -148,7 +148,7 @@ def generate_m3u(request: Request):
     base_url = str(request.base_url).rstrip("/")
     
     for name in channels.keys():
-        m3u_content += f'#EXTINF:-1 tvg-name="{name}" group-title="Vavoo Worker Proxy",{name.upper()}\n'
+        m3u_content += f'#EXTINF:-1 tvg-name="{name}" group-title="Multi-Worker Proxy",{name.upper()}\n'
         m3u_content += f"{base_url}/play/{name}\n"
         
     headers = {
@@ -158,7 +158,7 @@ def generate_m3u(request: Request):
 
 @app.get("/")
 def read_root():
-    return HTMLResponse("<h1>Cloudflare Worker Destekli Proxy Aktif</h1><p>Yönetim paneli: <a href='/admin'>/admin</a> | M3U Liste: <a href='/playlist.m3u'>/playlist.m3u</a></p>")
+    return HTMLResponse("<h1>Multi-Worker IPTV Proxy Aktif</h1><p>Yönetim paneli: <a href='/admin'>/admin</a> | M3U Liste: <a href='/playlist.m3u'>/playlist.m3u</a></p>")
 
 @app.get("/admin", response_class=HTMLResponse)
 async def dashboard(user: str = Depends(verify_admin)):
@@ -170,7 +170,7 @@ async def dashboard(user: str = Depends(verify_admin)):
     <html lang="tr">
     <head>
         <meta charset="UTF-8">
-        <title>IPTV Worker Admin Paneli</title>
+        <title>Multi-Worker IPTV Admin Paneli</title>
         <style>
             body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }}
             .container {{ max-width: 1200px; margin: 0 auto; }}
@@ -236,8 +236,8 @@ async def dashboard(user: str = Depends(verify_admin)):
     </head>
     <body>
         <div class="container">
-            <h1>IPTV Worker Admin Paneli</h1>
-            <p class="subtitle">Vercel & Cloudflare Worker Entegrasyonu Aktif</p>
+            <h1>Multi-Worker IPTV Admin Paneli</h1>
+            <p class="subtitle">4 Cloudflare Worker Yük Dağılımlı Proxy Mimarisi Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
