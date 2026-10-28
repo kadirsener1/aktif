@@ -16,7 +16,7 @@ CONFIG_FILE = "channels1.json"
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
 
-# Belirttiğiniz 4 Farklı Cloudflare Worker Sunucusu
+# 4 Farklı Cloudflare Worker Sunucusu
 WORKER_SERVERS = [
     "https://vavoo1.magnitude.workers.dev/play/",
     "https://vavoo2.magnitude2.workers.dev/play/",
@@ -137,13 +137,46 @@ async def handle_stream(channel_name: str):
     if channel_name not in channels:
         return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
 
-    # 4 Worker sunucusundan yük dağılımı (load-balancing) için rastgele veya sırayla birini seçiyoruz
+    # 4 Worker sunucusundan yük dağılımı (Load Balancing) için rastgele seçiyoruz
     chosen_worker = random.choice(WORKER_SERVERS)
-    
-    # İstekte bulunulan kanal adını worker'a iletiyoruz (Worker zaten channels1.json'dan okuyup en iyisini çözecek)
     target_url = f"{chosen_worker}{channel_name}"
 
     return RedirectResponse(url=target_url, status_code=302)
+
+# Worker'ların durumunu test eden admin endpoint'i
+@app.get("/admin/test-workers/{channel_name}")
+async def admin_test_workers(channel_name: str, user: str = Depends(verify_admin)):
+    channel_name = channel_name.strip().lower()
+    channels = load_channels()
+    if channel_name not in channels:
+        return JSONResponse({"error": "Kanal bulunamadı"}, status_code=404)
+
+    results = []
+    async with httpx.AsyncClient() as client:
+        for worker_base in WORKER_SERVERS:
+            test_url = f"{worker_base}{channel_name}"
+            start = time.time()
+            try:
+                # Sadece başlığı veya hızlı yanıtı kontrol ediyoruz (follow_redirects=False çünkü 302 dönecek)
+                response = await client.head(test_url, timeout=4.0, follow_redirects=False)
+                elapsed = time.time() - start
+                # Worker 302 veya 200 dönerse başarılı sayılır
+                ok = response.status_code in [200, 302, 307]
+                results.append({
+                    "worker": worker_base.split('/')[2],
+                    "ok": ok,
+                    "status": response.status_code,
+                    "latency": round(elapsed * 1000, 1)
+                })
+            except Exception:
+                results.append({
+                    "worker": worker_base.split('/')[2],
+                    "ok": False,
+                    "status": 500,
+                    "latency": 0
+                })
+
+    return {"channel": channel_name, "results": results}
 
 @app.get("/playlist.m3u")
 def generate_m3u(request: Request):
@@ -171,7 +204,7 @@ async def dashboard(user: str = Depends(verify_admin)):
     <html lang="tr">
     <head>
         <meta charset="UTF-8">
-        <title>IPTV Failover Admin Paneli</title>
+        <title>IPTV Worker Admin Paneli</title>
         <style>
             body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }}
             .container {{ max-width: 1200px; margin: 0 auto; }}
@@ -185,6 +218,8 @@ async def dashboard(user: str = Depends(verify_admin)):
             .btn-danger:hover {{ background: #b91c1c; }}
             .btn-warning {{ background: #d97706; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
             .btn-warning:hover {{ background: #b45309; }}
+            .btn-test {{ background: #7c3aed; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
+            .btn-test:hover {{ background: #6d28d9; }}
             .btn-secondary {{ background: #475569; padding: 6px 12px; font-size: 12px; margin-left: 10px; display: none; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; vertical-align: top; }}
@@ -192,6 +227,12 @@ async def dashboard(user: str = Depends(verify_admin)):
             tr:last-child td {{ border-bottom: none; }}
             a {{ color: #38bdf8; text-decoration: none; }}
             a:hover {{ text-decoration: underline; }}
+            .score-detail {{ display: none; background: #0f172a; padding: 12px; border-radius: 6px; margin-top: 8px; }}
+            .score-detail.open {{ display: block; }}
+            .worker-row {{ padding: 6px 10px; margin: 4px 0; background: #1e293b; border-radius: 4px; border-left: 3px solid #475569; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }}
+            .worker-row.ok {{ border-left-color: #22c55e; }}
+            .worker-row.fail {{ border-left-color: #dc2626; }}
+            .loading {{ color: #94a3b8; font-style: italic; padding: 8px; font-size: 12px; }}
             .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }}
             .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
             .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
@@ -233,12 +274,60 @@ async def dashboard(user: str = Depends(verify_admin)):
                     }}
                 }}
             }}
+
+            async function testWorkers(name) {{
+                const container = document.getElementById('workers-' + name);
+                if (!container) return;
+                
+                container.classList.add('open');
+                container.innerHTML = '<div class="loading">🔄 4 Worker sunucusu test ediliyor...</div>';
+
+                try {{
+                    const res = await fetch('/admin/test-workers/' + encodeURIComponent(name));
+                    if (!res.ok) throw new Error('Sunucu hatası');
+                    const data = await res.json();
+
+                    if (!data.results || data.results.length === 0) {{
+                        container.innerHTML = '<div class="loading">⚠️ Sonuç alınamadı.</div>';
+                        return;
+                    }}
+
+                    let html = '<div style="margin-bottom:6px; color:#94a3b8; font-size:11px;">⚡ Cloudflare Worker Yanıt Durumları:</div>';
+
+                    data.results.forEach((r) => {{
+                        const cssClass = r.ok ? 'ok' : 'fail';
+                        html += '<div class="worker-row ' + cssClass + '">';
+                        html += '<span><strong>' + r.worker + '</strong></span>';
+                        if (r.ok) {{
+                            html += '<span style="color:#22c55e;">ÇALIŞIYOR ✅ (' + r.latency + 'ms)</span>';
+                        }} else {{
+                            html += '<span style="color:#dc2626;">HATA ❌ (HTTP ' + r.status + ')</span>';
+                        }}
+                        html += '</div>';
+                    }});
+
+                    container.innerHTML = html;
+                }} catch (e) {{
+                    container.innerHTML = '<div class="loading">❌ Test sırasında hata oluştu</div>';
+                }}
+            }}
+
+            function toggleWorkers(name) {{
+                const container = document.getElementById('workers-' + name);
+                if (!container) return;
+                
+                if (container.classList.contains('open') && container.innerHTML.trim() !== '' && !container.innerHTML.includes('🔄')) {{
+                    container.classList.remove('open');
+                }} else {{
+                    testWorkers(name);
+                }}
+            }}
         </script>
     </head>
     <body>
         <div class="container">
-            <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Cloudflare Worker Load Balancer Modu Aktif</p>
+            <h1>IPTV Worker Admin Paneli</h1>
+            <p class="subtitle">Cloudflare Worker Load Balancer & Durum Kontrolü Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
@@ -265,7 +354,7 @@ async def dashboard(user: str = Depends(verify_admin)):
                     <thead>
                         <tr>
                             <th>Kanal Adı</th>
-                            <th>Oynatıcı Linki</th>
+                            <th>Oynatıcı Linki & Worker Durumu</th>
                             <th>İşlem</th>
                         </tr>
                     </thead>
@@ -283,8 +372,10 @@ async def dashboard(user: str = Depends(verify_admin)):
                             <td><strong>{safe_name_html}</strong><br><small style="color:#94a3b8;">{len(sources)} kaynak tanımlı</small></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a>
+                                <div id="workers-{safe_name_html}" class="score-detail"></div>
                             </td>
                             <td>
+                                <button type="button" class="btn-test" onclick='toggleWorkers({safe_name_js})'>⚡ Worker Test</button>
                                 <button type="button" class="btn-warning" onclick='editChannel({safe_name_js})'>Düzenle</button>
                                 <a href="{escape(delete_link)}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
                             </td>
