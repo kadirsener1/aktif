@@ -27,168 +27,7 @@ BLACKLIST_DURATION = 60  # 1 dakika
 
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
-
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-GITHUB_REPO = os.environ.get("GITHUB_REPO")
-ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
-ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
-
-security = HTTPBasic()
-
-def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_user = secrets.compare_digest(credentials.username, ADMIN_USER)
-    correct_pass = secrets.compare_digest(credentials.password, ADMIN_PASS)
-    if not (correct_user and correct_pass):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Yetkisiz erişim",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-# ─────────────────────────────────────────────
-# Kanal Yükleme ve GitHub Senkronizasyonu
-# ─────────────────────────────────────────────
-
-def _load_channels_uncached():
-    local_channels = {}
-    github_channels = {}
-
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                local_channels = json.load(f)
-                if not isinstance(local_channels, dict):
-                    local_channels = {}
-        except Exception:
-            pass
-
-    if GITHUB_TOKEN and GITHUB_REPO:
-        try:
-            import requests
-            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CONFIG_FILE}"
-            headers = {
-                "Authorization": f"Bearer {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github+json",
-            }
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                fd = res.json()
-                if "content" in fd:
-                    dc = base64.b64decode(fd["content"]).decode("utf-8")
-                    github_channels = json.loads(dc)
-                    if not isinstance(github_channels, dict):
-                        github_channels = {}
-        except Exception as e:
-            print(f"GitHub Load Error: {e}")
-
-    merged = {**local_channels, **github_channels}
-    return merged
-
-def load_channels(force=False):
-    now = time.time()
-    if not force and _CHANNELS_CACHE["data"] is not None \
-       and now - _CHANNELS_CACHE["time"] < CHANNELS_CACHE_TTL:
-        return _CHANNELS_CACHE["data"]
-
-    merged = _load_channels_uncached()
-    _CHANNELS_CACHE["data"] = merged
-    _CHANNELS_CACHE["time"] = now
-    return merged
-
-def save_and_push_channels(channels):
-    _CHANNELS_CACHE["data"] = channels
-    _CHANNELS_CACHE["time"] = time.time()
-
-    if GITHUB_TOKEN and GITHUB_REPO:
-        try:
-            import requests
-            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CONFIG_FILE}"
-            headers = {
-                "Authorization": f"Bearer {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github+json",
-            }
-            res = requests.get(url, headers=headers, timeout=10)
-            sha = res.json().get("sha") if res.status_code == 200 else None
-
-            cs = json.dumps(channels, ensure_ascii=False, indent=4)
-            ce = base64.b64encode(cs.encode("utf-8")).decode("utf-8")
-            data = {
-                "message": "Vercel admin panelinden channels.json güncellendi",
-                "content": ce,
-            }
-            if sha:
-                data["sha"] = sha
-
-            requests.put(url, headers=headers, json=data, timeout=15)
-        except Exception as e:
-            print(f"GitHub Sync Error: {e}")
-
-# ─────────────────────────────────────────────
-# M3U8 Doğrulama ve Sağlık Analizi
-# ─────────────────────────────────────────────
-
-async def fetch_m3u8(client, url, timeout_sec=5.0):
-    start = time.time()
-    try:
-        response = await client.get(url, timeout=timeout_sec, follow_redirects=True)
-        elapsed = time.time() - start
-        if response.status_code != 200:
-            return None, response.status_code, elapsed
-        return response.text, 200, elapsed
-    except Exception:
-        elapsed = time.time() - start
-        return None, 500, elapsed
-
-async def check_url(client, url):
-    try:
-        content, status, elapsed_time = await fetch_m3u8(client, url, 5.0)
-        if status != 200 or not content or "#EXTM3U" not in content:
-            return {"url": url, "ok": False, "reason": f"HTTP {status}" if status != 200 else "Boş Yanıt", "score": 0}
-
-        has_segments = "#EXTINF:" in content or "#EXT-X-STREAM-INF" in content
-        if not has_segments:
-            return {"url": url, "ok": False, "reason": "Segment Yok", "score": 0}
-
-        speed_score = max(0.0, 100.0 - elapsed_time * 20.0)
-        return {"url": url, "ok": True, "reason": "OK", "score": speed_score, "speed": elapsed_time}
-    except Exception as e:
-        return {"url": url, "ok": False, "reason": "Bağlantı Hatası", "score": 0}
-
-async def test_all_sources(channel_name, force=False):
-    current_time = time.time()
-    if not force and channel_name in SCORE_CACHE:
-        c = SCORE_CACHE[channel_name]
-        if current_time - c["time"] < CACHE_DURATION:
-            return c["results"]
-
-    channels = load_channels()
-    sources = channels.get(channel_name)
-    if not sources:
-        return []
-
-    async with httpx.AsyncClient() as client:
-        tasks = [check_url(client, u) for u in sources]
-        results = await asyncio.gather(*tasks)
-
-    results = [r for r in results if r is not None]
-    SCORE_CACHE[channel_name] = {"time": current_time, "results": results}
-    return results
-
-# ─────────────────────────────────────────────
-# Endpoint'ler
-# ─────────────────────────────────────────────
-
-@app.get("/ping")
-def ping():
-    return {"status": "OK"}
-
-@app.get("/play/{channel_name}")
-async def handle_stream(channel_name: str):
-    channel_name = channel_name.strip().lower()
-    channels = load_channels()
-    if channel_name not in channels:
-        return JSONResponse({"error": "Böyle bir kanal tanımlı değil."}, status_code=404)
+@@ -192,39 +191,43 @@
 
     original_sources = channels.get(channel_name, [])
 
@@ -208,10 +47,13 @@ async def handle_stream(channel_name: str):
     results = await test_all_sources(channel_name, force=True)
     working_dict = {r["url"]: r["score"] for r in results if r["ok"]}
 
+
     ordered_working_urls = [
         url for url in original_sources 
         if url in working_dict and url not in blacklisted_urls
     ]
+
+
 
     if not ordered_working_urls:
         STREAM_BLACKLIST[channel_name] = {}
@@ -222,65 +64,193 @@ async def handle_stream(channel_name: str):
 
     # 3. İndeks yönetimi ve Akıllı Donma Yakalama (Runtime Failover)
     state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "last_request": 0, "url": None})
-    
+
     if state["url"] and (now - state["last_request"] < 30):
         STREAM_BLACKLIST[channel_name][state["url"]] = now
+
+
+
+
+
+
+
+
+
+
+
         current_index = (state["index"] + 1) % len(ordered_working_urls)
     else:
         current_index = state["index"]
-
-    if current_index >= len(ordered_working_urls):
-        current_index = 0
-
-    target_url = ordered_working_urls[current_index]
-
-    CHANNEL_FAILOVER_STATE[channel_name] = {
-        "index": current_index,
-        "last_request": now,
-        "url": target_url
-    }
+@@ -242,7 +245,24 @@
 
     return RedirectResponse(url=target_url, status_code=302)
+
+# 🟢 YENİ: Karalisteyi ve durum hafızasını sıfırlayan endpoint
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 @app.get("/admin/reset-blacklist")
 async def reset_blacklist(user: str = Depends(verify_admin)):
     STREAM_BLACKLIST.clear()
-    CHANNEL_FAILOVER_STATE.clear()
-    SCORE_CACHE.clear()
-    M3U8_CACHE.clear()
-    return RedirectResponse(url="/admin", status_code=303)
-
-@app.get("/playlist.m3u")
-def generate_m3u(request: Request):
-    channels = load_channels()
-    m3u_content = "#EXTM3U\n"
-    base_url = str(request.base_url).rstrip("/")
-    
-    for name in channels.keys():
-        m3u_content += f'#EXTINF:-1 tvg-name="{name}" group-title="IPTV Proxy",{name.upper()}\n'
-        m3u_content += f"{base_url}/play/{name}\n"
-        
-    return HTMLResponse(content=m3u_content, media_type="audio/x-mpegurl")
-
-@app.get("/")
-def read_root():
-    return HTMLResponse("<h1>IPTV Proxy Sistem Aktif</h1><p>Yönetim paneline gitmek için <a href='/admin'>/admin</a> adresini kullanın. Çalma listesi için <a href='/playlist.m3u'>/playlist.m3u</a></p>")
-
-@app.get("/admin", response_class=HTMLResponse)
+@@ -271,7 +291,6 @@
 async def dashboard(user: str = Depends(verify_admin)):
     channels = load_channels()
     channels_json_esc = json.dumps(channels, ensure_ascii=False)
+    m3u8_cache_count = len(M3U8_CACHE)
     blacklisted_total = sum(len(v) for v in STREAM_BLACKLIST.values())
 
     html = f"""
-    <!DOCTYPE html>
-    <html lang="tr">
-    <head>
-        <meta charset="UTF-8">
-        <title>IPTV Failover Admin Paneli</title>
-        <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }}
-            .container {{ max-width: 1200px; margin: 0 auto; }}
-            h1 {{ color: #38bdf8; font-size: 24px; margin-bottom: 5px; }}
-            p.subtitle {{ color: #94a3b8; margin-top: 0; }}
-            .card {{ background: #1e293b; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px -
+@@ -317,6 +336,8 @@
+            .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }}
+            .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
+            .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
+
+
+        </style>
+        <script>
+            const allChannels = {channels_json_esc};
+@@ -410,13 +431,13 @@
+    <body>
+        <div class="container">
+            <h1>IPTV Smart Proxy Admin Paneli</h1>
+            <p class="subtitle">Karalisteli & Donma Korumalı Akıllı Failover Modu Aktif</p>
+
+            <div class="stats-bar">
+                <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
+                <div class="stat-item"><strong>{blacklisted_total}</strong>Karalistede Yayın</div>
+                <div class="stat-item"><a href="/playlist.m3u" target="_blank">📥 M3U Çalma Listesini İndir</a></div>
+                <a href="/admin/reset-blacklist" class="btn-reset" onclick="return confirm('Tüm karalisteyi ve akış önbelleğini sıfırlamak istediğinize emin misiniz?')">🗑️ Karalisteyi ve Önbelleği Temizle</a>
+            </div>
+
+            <div class="card">
+@@ -439,7 +460,7 @@
+                    <thead>
+                        <tr>
+                            <th>Kanal Adı</th>
+                            <th>Oynatıcı Linki</th>
+                            <th>İşlem</th>
+                        </tr>
+                    </thead>
+@@ -451,85 +472,108 @@
+        safe_name_js = json.dumps(name)
+        play_link = f"/play/{name}"
+        delete_link = f"/admin/delete/{name}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        html += f"""
+                        <tr>
+                            <td><strong>{safe_name_html}</strong><br><small style="color:#94a3b8;">{len(sources)} kaynak tanımlı</small></td>
+                            <td>
+                                <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a>
+
+                                <div id="scores-{safe_name_html}" class="score-detail"></div>
+                            </td>
+                            <td>
+                                <button class="btn-test" onclick='toggleScores({safe_name_js})'>📊 Skorlar</button>
+                                <button class="btn-warning" onclick='editChannel({safe_name_js})'>Düzenle</button>
+                                <a href="{escape(delete_link)}" class="btn-danger" style="color:white; padding: 6px 10px; border-radius:4px; display:inline-block;" onclick="return confirm('Bu kanalı silmek istediğine emin misin?')">Sil</a>
+                            </td>
+                        </tr>
+        """
+
+    html += """
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/admin/save")
+async def admin_save(old_name: str = Form(""), channel_name: str = Form(...), urls: str = Form(...), user: str = Depends(verify_admin)):
+    old_name = old_name.strip().lower()
+    channel_name = channel_name.strip().lower()
+    parsed_urls = [u.strip() for u in urls.replace(',', '\n').split('\n') if u.strip()]
+
+    if channel_name and parsed_urls:
+        channels = load_channels()
+        if old_name and old_name != channel_name and old_name in channels:
+            del channels[old_name]
+            SCORE_CACHE.pop(old_name, None)
+            CHANNEL_FAILOVER_STATE.pop(old_name, None)
+            STREAM_BLACKLIST.pop(old_name, None)
+
+        channels[channel_name] = parsed_urls
+        SCORE_CACHE.pop(old_name, None)
+        CHANNEL_FAILOVER_STATE.pop(old_name, None)
+        STREAM_BLACKLIST.pop(old_name, None)
+
+        await asyncio.to_thread(save_and_push_channels, channels)
+
+    return RedirectResponse(url="/admin", status_code=303)
+
+@app.get("/admin/delete/{channel_name}")
+async def admin_delete(channel_name: str, user: str = Depends(verify_admin)):
+    channel_name = channel_name.strip().lower()
+    channels = load_channels()
+    if channel_name in channels:
+        del channels[channel_name]
+        SCORE_CACHE.pop(channel_name, None)
+        CHANNEL_FAILOVER_STATE.pop(channel_name, None)
+        STREAM_BLACKLIST.pop(channel_name, None)
+        await asyncio.to_thread(save_and_push_channels, channels)
+
+    return RedirectResponse(url="/admin", status_code=303)
+
+@app.get("/admin/test/{channel_name}")
+async def admin_test_channel(channel_name: str, user: str = Depends(verify_admin)):
+    channel_name = channel_name.strip().lower()
+    channels = load_channels()
+    if channel_name not in channels:
+        return JSONResponse({"error": "Kanal bulunamadı"}, status_code=404)
+
+    results = await test_all_sources(channel_name, force=True)
+    best_url = None
+    working = [r for r in results if r["ok"]]
+    if working:
+        original_sources = channels.get(channel_name, [])
+        for src in original_sources:
+            if any(w["url"] == src for w in working):
+                best_url = src
+                break
+        if not best_url:
+            best_url = working[0]["url"]
+
+    return {"channel": channel_name, "best_url": best_url, "results": results}
