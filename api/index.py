@@ -22,28 +22,20 @@ M3U8_CACHE_DURATION = 300
 MAX_M3U8_CACHE = 300
 
 CHANNEL_FAILOVER_STATE = {}
+
+
 STREAM_BLACKLIST = {}
 BLACKLIST_DURATION = 60  # 1 dakika
 
-_CHANNELS_CACHE = {"data": None, "time": 0}
-CHANNELS_CACHE_TTL = 30
-@@ -192,39 +191,43 @@
+@@ -186,7 +184,7 @@
+    return {"status": "OK"}
 
-    original_sources = channels.get(channel_name, [])
-
-    # 1. Kara liste temizliği (Süresi dolanları çıkar)
-    now = time.time()
-    if channel_name in STREAM_BLACKLIST:
-        STREAM_BLACKLIST[channel_name] = {
-            url: t for url, t in STREAM_BLACKLIST[channel_name].items() 
-            if now - t < BLACKLIST_DURATION
-        }
-    else:
-        STREAM_BLACKLIST[channel_name] = {}
-
-    blacklisted_urls = STREAM_BLACKLIST[channel_name]
-
-    # 2. Kaynakları test et
+@app.get("/play/{channel_name}")
+async def handle_stream(channel_name: str):
+    channel_name = channel_name.strip().lower()
+    channels = load_channels()
+    if channel_name not in channels:
+@@ -210,13 +208,11 @@
     results = await test_all_sources(channel_name, force=True)
     working_dict = {r["url"]: r["score"] for r in results if r["ok"]}
 
@@ -54,76 +46,72 @@ CHANNELS_CACHE_TTL = 30
     ]
 
 
-
     if not ordered_working_urls:
         STREAM_BLACKLIST[channel_name] = {}
         ordered_working_urls = [url for url in original_sources if url in working_dict]
-
-    if not ordered_working_urls:
-        return JSONResponse({"error": f"{channel_name} için aktif yayın bulunamadı."}, status_code=503)
-
+@@ -227,12 +223,8 @@
     # 3. İndeks yönetimi ve Akıllı Donma Yakalama (Runtime Failover)
     state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "last_request": 0, "url": None})
 
+
+
     if state["url"] and (now - state["last_request"] < 30):
+
         STREAM_BLACKLIST[channel_name][state["url"]] = now
-
-
-
-
-
-
-
-
-
-
 
         current_index = (state["index"] + 1) % len(ordered_working_urls)
     else:
         current_index = state["index"]
-@@ -242,7 +245,24 @@
+@@ -242,7 +234,6 @@
+
+    target_url = ordered_working_urls[current_index]
+
+
+    CHANNEL_FAILOVER_STATE[channel_name] = {
+        "index": current_index,
+        "last_request": now,
+@@ -251,6 +242,15 @@
 
     return RedirectResponse(url=target_url, status_code=302)
 
 # 🟢 YENİ: Karalisteyi ve durum hafızasını sıfırlayan endpoint
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 @app.get("/admin/reset-blacklist")
 async def reset_blacklist(user: str = Depends(verify_admin)):
     STREAM_BLACKLIST.clear()
-@@ -271,7 +291,6 @@
-async def dashboard(user: str = Depends(verify_admin)):
+    CHANNEL_FAILOVER_STATE.clear()
+    SCORE_CACHE.clear()
+    M3U8_CACHE.clear()
+    return RedirectResponse(url="/admin", status_code=303)
+
+@app.get("/playlist.m3u")
+def generate_m3u(request: Request):
+    channels = load_channels()
+@@ -272,6 +272,7 @@
     channels = load_channels()
     channels_json_esc = json.dumps(channels, ensure_ascii=False)
     m3u8_cache_count = len(M3U8_CACHE)
     blacklisted_total = sum(len(v) for v in STREAM_BLACKLIST.values())
 
     html = f"""
-@@ -317,6 +336,8 @@
+    <!DOCTYPE html>
+@@ -294,6 +295,8 @@
+            .btn-warning:hover {{ background: #b45309; }}
+            .btn-test {{ background: #7c3aed; padding: 6px 12px; font-size: 12px; margin-right: 5px; }}
+            .btn-test:hover {{ background: #6d28d9; }}
+            .btn-reset {{ background: #ea580c; padding: 10px 15px; font-size: 13px; font-weight: bold; border-radius: 6px; text-decoration: none; display: inline-block; color: white; }}
+            .btn-reset:hover {{ background: #c2410c; }}
+            .btn-secondary {{ background: #475569; padding: 6px 12px; font-size: 12px; margin-left: 10px; display: none; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+            th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; vertical-align: top; }}
+@@ -311,7 +314,7 @@
+            .score-high {{ background: #22c55e; color: #052e16; }}
+            .score-fail {{ background: #dc2626; color: #ffffff; }}
+            .loading {{ color: #94a3b8; font-style: italic; padding: 10px; }}
             .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }}
             .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
             .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
-
-
         </style>
-        <script>
-            const allChannels = {channels_json_esc};
-@@ -410,13 +431,13 @@
+@@ -407,124 +410,126 @@
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
@@ -137,7 +125,22 @@ async def dashboard(user: str = Depends(verify_admin)):
             </div>
 
             <div class="card">
-@@ -439,7 +460,7 @@
+                <h3 id="form-title">Yeni Kanal Ekle</h3>
+                <form action="/admin/save" method="POST">
+                    <input type="hidden" id="old_name" name="old_name" value="">
+                    <label>Kanal Adı (Örn: sportv):</label>
+                    <input type="text" id="channel_name" name="channel_name" required placeholder="sportv">
+                    <label>M3U8 Linkleri (Alt alta veya virgülle ayırarak):</label>
+                    <textarea id="urls" name="urls" rows="3" required placeholder="https://ornek.com/kanal1.m3u8"></textarea>
+                    <button type="submit" id="submit-btn">Kanalı Ekle ve GitHub'a Kaydet</button>
+                    <button type="button" id="cancel-btn" class="btn-secondary" onclick="resetForm()">İptal</button>
+                </form>
+            </div>
+
+            <div class="card">
+                <h3>Tanımlı Kanallar Listesi</h3>
+                <input type="text" id="searchInput" placeholder="🔍 Kanal adıyla hızlıca ara..." onkeyup="filterChannels()">
+                <table id="channelTable">
                     <thead>
                         <tr>
                             <th>Kanal Adı</th>
@@ -145,39 +148,20 @@ async def dashboard(user: str = Depends(verify_admin)):
                             <th>İşlem</th>
                         </tr>
                     </thead>
-@@ -451,85 +472,108 @@
+                    <tbody>
+    """
+
+    for name, sources in channels.items():
+        safe_name_html = escape(name)
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         html += f"""
                         <tr>
                             <td><strong>{safe_name_html}</strong><br><small style="color:#94a3b8;">{len(sources)} kaynak tanımlı</small></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a>
-
                                 <div id="scores-{safe_name_html}" class="score-detail"></div>
                             </td>
                             <td>
