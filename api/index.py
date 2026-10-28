@@ -22,8 +22,7 @@ M3U8_CACHE_DURATION = 300
 MAX_M3U8_CACHE = 300
 
 CHANNEL_FAILOVER_STATE = {}
-STREAM_BLACKLIST = {}
-BLACKLIST_DURATION = 60  # 1 dakika
+STREAM_BLACKLIST = {}  # Artık süreli değil, kalıcı olarak saklanacak (Manuel kaldırılana kadar)
 
 _CHANNELS_CACHE = {"data": None, "time": 0}
 CHANNELS_CACHE_TTL = 30
@@ -192,39 +191,43 @@ async def handle_stream(channel_name: str):
 
     original_sources = channels.get(channel_name, [])
 
-    # 1. Kara liste temizliği (Süresi dolanları çıkar)
-    now = time.time()
-    if channel_name in STREAM_BLACKLIST:
-        STREAM_BLACKLIST[channel_name] = {
-            url: t for url, t in STREAM_BLACKLIST[channel_name].items() 
-            if now - t < BLACKLIST_DURATION
-        }
-    else:
-        STREAM_BLACKLIST[channel_name] = {}
+    # Karalisteyi başlat
+    if channel_name not in STREAM_BLACKLIST:
+        STREAM_BLACKLIST[channel_name] = set()
 
     blacklisted_urls = STREAM_BLACKLIST[channel_name]
 
-    # 2. Kaynakları test et
+    # Kaynakları test et
     results = await test_all_sources(channel_name, force=True)
     working_dict = {r["url"]: r["score"] for r in results if r["ok"]}
 
+    # Karalistede OLMAYAN çalışan linkleri filtrele
     ordered_working_urls = [
         url for url in original_sources 
         if url in working_dict and url not in blacklisted_urls
     ]
 
+    # Eğer tüm çalışan linkler karalistede ise ve başka çare yoksa geçici olarak yoksayabilir veya boş dönebilirsiniz. 
+    # Burada kullanıcının isteği üzerine karalisteyi aşmıyoruz, ancak alternatif kalmadıysa uyarı veriyoruz:
     if not ordered_working_urls:
-        STREAM_BLACKLIST[channel_name] = {}
-        ordered_working_urls = [url for url in original_sources if url in working_dict]
+        return JSONResponse({"error": f"{channel_name} için karalistede olmayan aktif/çalışan yayın bulunamadı."}, status_code=503)
 
-    if not ordered_working_urls:
-        return JSONResponse({"error": f"{channel_name} için aktif yayın bulunamadı."}, status_code=503)
-
-    # 3. İndeks yönetimi ve Akıllı Donma Yakalama (Runtime Failover)
+    now = time.time()
     state = CHANNEL_FAILOVER_STATE.get(channel_name, {"index": 0, "last_request": 0, "url": None})
     
     if state["url"] and (now - state["last_request"] < 30):
-        STREAM_BLACKLIST[channel_name][state["url"]] = now
+        # Donma durumunda bu URL'yi kalıcı olarak karalisteye ekle
+        STREAM_BLACKLIST[channel_name].add(state["url"])
+        
+        # Karalisteye eklenenleri çıkarıp tekrar filtrele
+        ordered_working_urls = [
+            url for url in original_sources 
+            if url in working_dict and url not in STREAM_BLACKLIST[channel_name]
+        ]
+        
+        if not ordered_working_urls:
+            return JSONResponse({"error": f"{channel_name} için kullanılabilir başka kaynak kalmadı (Tümü karalistede)."}, status_code=503)
+            
         current_index = (state["index"] + 1) % len(ordered_working_urls)
     else:
         current_index = state["index"]
@@ -242,7 +245,24 @@ async def handle_stream(channel_name: str):
 
     return RedirectResponse(url=target_url, status_code=302)
 
-# 🟢 YENİ: Karalisteyi ve durum hafızasını sıfırlayan endpoint
+# Manuel Karalisteye Ekleme
+@app.post("/admin/blacklist/add")
+async def add_to_blacklist(channel_name: str = Form(...), url: str = Form(...), user: str = Depends(verify_admin)):
+    channel_name = channel_name.strip().lower()
+    if channel_name not in STREAM_BLACKLIST:
+        STREAM_BLACKLIST[channel_name] = set()
+    STREAM_BLACKLIST[channel_name].add(url.strip())
+    return RedirectResponse(url="/admin", status_code=303)
+
+# Manuel Karatisteden Çıkarma
+@app.post("/admin/blacklist/remove")
+async def remove_from_blacklist(channel_name: str = Form(...), url: str = Form(...), user: str = Depends(verify_admin)):
+    channel_name = channel_name.strip().lower()
+    if channel_name in STREAM_BLACKLIST:
+        STREAM_BLACKLIST[channel_name].discard(url.strip())
+    return RedirectResponse(url="/admin", status_code=303)
+
+# Tüm Karalisteyi Sıfırlama
 @app.get("/admin/reset-blacklist")
 async def reset_blacklist(user: str = Depends(verify_admin)):
     STREAM_BLACKLIST.clear()
@@ -271,7 +291,6 @@ def read_root():
 async def dashboard(user: str = Depends(verify_admin)):
     channels = load_channels()
     channels_json_esc = json.dumps(channels, ensure_ascii=False)
-    m3u8_cache_count = len(M3U8_CACHE)
     blacklisted_total = sum(len(v) for v in STREAM_BLACKLIST.values())
 
     html = f"""
@@ -317,6 +336,8 @@ async def dashboard(user: str = Depends(verify_admin)):
             .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }}
             .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
             .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
+            .blacklist-section {{ margin-top: 10px; background: #2b1d1d; padding: 10px; border-radius: 6px; border: 1px solid #7f1d1d; }}
+            .blacklist-item {{ display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-family: monospace; margin: 4px 0; background: #18181b; padding: 6px; border-radius: 4px; }}
         </style>
         <script>
             const allChannels = {channels_json_esc};
@@ -410,13 +431,13 @@ async def dashboard(user: str = Depends(verify_admin)):
     <body>
         <div class="container">
             <h1>IPTV Smart Proxy Admin Paneli</h1>
-            <p class="subtitle">Karalisteli & Donma Korumalı Akıllı Failover Modu Aktif</p>
+            <p class="subtitle">Kalıcı Karalisteli & Donma Korumalı Akıllı Failover Modu Aktif</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
-                <div class="stat-item"><strong>{blacklisted_total}</strong>Karalistede Yayın</div>
+                <div class="stat-item"><strong>{blacklisted_total}</strong>Karalistede Kilitli Yayın</div>
                 <div class="stat-item"><a href="/playlist.m3u" target="_blank">📥 M3U Çalma Listesini İndir</a></div>
-                <a href="/admin/reset-blacklist" class="btn-reset" onclick="return confirm('Tüm karalisteyi ve akış önbelleğini sıfırlamak istediğinize emin misiniz?')">🗑️ Karalisteyi ve Önbelleği Temizle</a>
+                <a href="/admin/reset-blacklist" class="btn-reset" onclick="return confirm('Tüm karalisteyi ve önbelleği sıfırlamak istediğinize emin misiniz?')">🗑️ Tüm Karalisteyi Temizle</a>
             </div>
 
             <div class="card">
@@ -439,7 +460,7 @@ async def dashboard(user: str = Depends(verify_admin)):
                     <thead>
                         <tr>
                             <th>Kanal Adı</th>
-                            <th>Oynatıcı Linki</th>
+                            <th>Oynatıcı Linki & Karalisteler</th>
                             <th>İşlem</th>
                         </tr>
                     </thead>
@@ -451,12 +472,35 @@ async def dashboard(user: str = Depends(verify_admin)):
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
+        
+        # Karalistede olan linkleri al
+        b_list = list(STREAM_BLACKLIST.get(name, set()))
+
+        blacklist_html = ""
+        if b_list:
+            blacklist_html += f"""
+            <div class="blacklist-section">
+                <div style="color: #fca5a5; font-weight: bold; font-size: 11px; margin-bottom: 4px;">🚫 Karalistede Kilitli Linkler ({len(b_list)}):</div>
+            """
+            for b_url in b_list:
+                blacklist_html += f"""
+                <div class="blacklist-item">
+                    <span style="word-break: break-all; color:#fee2e2; max-width: 75%;">{escape(b_url)}</span>
+                    <form action="/admin/blacklist/remove" method="POST" style="margin:0;">
+                        <input type="hidden" name="channel_name" value="{escape(name)}">
+                        <input type="hidden" name="url" value="{escape(b_url)}">
+                        <button type="submit" style="background:#16a34a; padding: 2px 6px; font-size:10px;">Kilidi Aç ✅</button>
+                    </form>
+                </div>
+                """
+            blacklist_html += "</div>"
 
         html += f"""
                         <tr>
                             <td><strong>{safe_name_html}</strong><br><small style="color:#94a3b8;">{len(sources)} kaynak tanımlı</small></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a>
+                                {blacklist_html}
                                 <div id="scores-{safe_name_html}" class="score-detail"></div>
                             </td>
                             <td>
