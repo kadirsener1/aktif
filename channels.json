@@ -191,6 +191,18 @@
         "https://vavoo3.magnitude3.workers.dev/play/szc",
         "https://vavoo4.ogrenci.workers.dev/play/szc"
     ],
+    "discovery": [
+        "https://vavoo1.magnitude.workers.dev/play/discovery",
+        "https://vavoo2.magnitude2.workers.dev/play/discovery",
+        "https://vavoo3.magnitude3.workers.dev/play/discovery",
+        "https://vavoo4.ogrenci.workers.dev/play/discovery"
+    ],
+    "id": [
+        "https://vavoo1.magnitude.workers.dev/play/id",
+        "https://vavoo2.magnitude2.workers.dev/play/id",
+        "https://vavoo3.magnitude3.workers.dev/play/id",
+        "https://vavoo4.ogrenci.workers.dev/play/id"
+    ],
     "akit": [
         "https://vavoo1.magnitude.workers.dev/play/akit",
         "https://vavoo2.magnitude2.workers.dev/play/akit",
