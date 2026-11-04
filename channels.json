@@ -41,6 +41,12 @@
         "https://vavoo3.magnitude3.workers.dev/play/natgeo",
         "https://vavoo4.ogrenci.workers.dev/play/natgeo"
     ],
+    "natgeowild": [
+        "https://vavoo1.magnitude.workers.dev/play/natgeowild",
+        "https://vavoo2.magnitude2.workers.dev/play/natgeowild",
+        "https://vavoo3.magnitude3.workers.dev/play/natgeowild",
+        "https://vavoo4.ogrenci.workers.dev/play/natgeowild"
+    ],
     "beinsport1sd": [
         "https://vavoo1.magnitude.workers.dev/play/beinsport1sd",
         "https://vavoo2.magnitude2.workers.dev/play/beinsport1sd",
