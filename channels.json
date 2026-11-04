@@ -47,6 +47,12 @@
         "https://vavoo3.magnitude3.workers.dev/play/natgeowild",
         "https://vavoo4.ogrenci.workers.dev/play/natgeowild"
     ],
+    "lovenature": [
+        "https://vavoo1.magnitude.workers.dev/play/lovenature",
+        "https://vavoo2.magnitude2.workers.dev/play/lovenature",
+        "https://vavoo3.magnitude3.workers.dev/play/lovenature",
+        "https://vavoo4.ogrenci.workers.dev/play/lovenature"
+    ],
      "bbcearth": [
         "https://vavoo1.magnitude.workers.dev/play/bbcearth",
         "https://vavoo2.magnitude2.workers.dev/play/bbcearth",
