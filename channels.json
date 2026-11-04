@@ -65,6 +65,12 @@
         "https://vavoo3.magnitude3.workers.dev/play/viasathistory",
         "https://vavoo4.ogrenci.workers.dev/play/viasathistory"
     ],
+    "tarihtv": [
+        "https://vavoo1.magnitude.workers.dev/play/tarihtv",
+        "https://vavoo2.magnitude2.workers.dev/play/tarihtv",
+        "https://vavoo3.magnitude3.workers.dev/play/tarihtv",
+        "https://vavoo4.ogrenci.workers.dev/play/tarihtv"
+    ],
     "beinsport1sd": [
         "https://vavoo1.magnitude.workers.dev/play/beinsport1sd",
         "https://vavoo2.magnitude2.workers.dev/play/beinsport1sd",
