@@ -209,6 +209,12 @@
         "https://vavoo3.magnitude3.workers.dev/play/koytv",
         "https://vavoo4.ogrenci.workers.dev/play/koytv"
     ],
+    "tarımtv": [
+        "https://vavoo1.magnitude.workers.dev/play/tarımtv",
+        "https://vavoo2.magnitude2.workers.dev/play/tarımtv",
+        "https://vavoo3.magnitude3.workers.dev/play/tarımtv",
+        "https://vavoo4.ogrenci.workers.dev/play/tarımtv"
+    ],
     "cnn": [
         "https://vavoo1.magnitude.workers.dev/play/cnn",
         "https://vavoo2.magnitude2.workers.dev/play/cnn",
