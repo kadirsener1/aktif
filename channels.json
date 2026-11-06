@@ -247,7 +247,8 @@
     ],
     "bein1tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein1tr",
-        "https://bosstvxproxy.magnitude.workers.dev/bein1tr"
+        "https://bosstvxproxy.magnitude.workers.dev/bein1tr",
+        "https://avva.magnitude5.workers.dev/bein1tr"
     ],
     "bein2tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein2tr",
