@@ -296,9 +296,9 @@ async def test_all_sources(channel_name):
 
 async def get_working_stream(channel_name):
     """
-    Sunucular liste sırasına göre tek tek ve her biri için tam 5 saniye 
-    beklenerek denenir. Cloudflare sınırına takılan veya hata veren sunucu 
-    anında atlanıp sıradaki sunucuya geçilir.
+    Her istekte güncel channels.json anlık okunur. 
+    Listeden silinen sunucular anında devre dışı kalır.
+    Sunucular sırayla 5 saniye zaman aşımıyla denenir.
     """
     channels = load_channels()
     sources = channels.get(channel_name)
@@ -340,7 +340,13 @@ async def handle_stream(request):
             text=f"{channel_name} için şu an aktif çalışan sunucu bulunamadı.",
             status=503,
         )
-    raise web.HTTPFound(working_url)
+    
+    # Tarayıcıların ve oynatıcıların yönlendirmeyi önbelleğe almasını engellemek için Cache-Control eklendi
+    raise web.HTTPFound(working_url, headers={
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+    })
 
 
 @basic_auth_required
@@ -542,7 +548,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Failover Paneli</h1>
-            <p class="subtitle">Cloudflare limitlerine karşı 5 saniye zaman aşımıyla sıralı failover sistemi aktif.</p>
+            <p class="subtitle">Anlık güncellenen sıralı failover sistemi ve no-cache koruması aktif.</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
@@ -608,7 +614,7 @@ async def dashboard(request):
     </body>
     </html>
     """
-    return web.Response(text=html, content_type='text/html')
+    return web.Response(text=html, content_type='text/html', headers={'Cache-Control': 'no-store, no-cache, must-revalidate'})
 
 
 # ─────────────────────────────────────────────
