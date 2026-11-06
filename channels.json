@@ -1,6 +1,7 @@
 {
     "test": [
-        "https://bosstvproxy.kkoor.workers.dev/bein1tr"
+        "https://bosstvproxy.kkoor.workers.dev/bein1tr",
+        "https://bosstvxproxy.magnitude.workers.dev/bein1tr"
     ],
     "atv": [
         "https://vavoo1.magnitude.workers.dev/play/atv",
@@ -56,7 +57,7 @@
         "https://vavoo3.magnitude3.workers.dev/play/lovenature",
         "https://vavoo4.ogrenci.workers.dev/play/lovenature"
     ],
-     "bbcearth": [
+    "bbcearth": [
         "https://vavoo1.magnitude.workers.dev/play/bbcearth",
         "https://vavoo2.magnitude2.workers.dev/play/bbcearth",
         "https://vavoo3.magnitude3.workers.dev/play/bbcearth",
