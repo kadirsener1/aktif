@@ -245,7 +245,11 @@
         "https://vavoo3.magnitude3.workers.dev/play/akit",
         "https://vavoo4.ogrenci.workers.dev/play/akit"
     ],
-    "bein1trbs": [
+    "test": [
+        "https://bosstvproxy.kkoor.workers.dev/bein1tr",
+        "https://bosstvxproxy.magnitude.workers.dev/bein1tr"
+    ],
+    "bein1tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein1tr",
         "https://bosstvxproxy.magnitude.workers.dev/bein1tr"
     ]
