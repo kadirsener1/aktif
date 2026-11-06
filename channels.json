@@ -252,10 +252,24 @@
     ],
     "bein2tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein2tr",
-        "https://bosstvxproxy.magnitude.workers.dev/bein2tr"
+        "https://bosstvxproxy.magnitude.workers.dev/bein2tr",
+         "https://avva.magnitude5.workers.dev/bein2tr"
     ],
     "bein3tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein3tr",
-        "https://bosstvxproxy.magnitude.workers.dev/bein3tr"
+        "https://bosstvxproxy.magnitude.workers.dev/bein3tr",
+         "https://avva.magnitude5.workers.dev/bein3tr"
+    ],
+     ],
+    "bein3tr": [
+        "https://bosstvproxy.kkoor.workers.dev/bein4tr",
+        "https://bosstvxproxy.magnitude.workers.dev/bein4tr",
+         "https://avva.magnitude5.workers.dev/bein4tr"
+    ],
+     ],
+    "bein3tr": [
+        "https://bosstvproxy.kkoor.workers.dev/bein5tr",
+        "https://bosstvxproxy.magnitude.workers.dev/bein5tr",
+         "https://avva.magnitude5.workers.dev/bein5tr"
     ]
 }
