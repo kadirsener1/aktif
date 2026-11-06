@@ -297,8 +297,8 @@ async def test_all_sources(channel_name):
 async def get_working_stream(channel_name):
     """
     Önbellek kullanılmaz. Tanımlanan sunucular sırasıyla (liste sırasına göre)
-    test edilir. Hangi sunucu yanıt verirse (veya hata almazsa / limit aşmazsa)
-    anında o döndürülür. Böylece Cloudflare engeline takılan sunucu atlanmış olur.
+    test edilir. Hangi sunucu yanıt verirse anında o döndürülür. 
+    Böylece Cloudflare limitine takılan sunucu atlanıp sonrakine geçilir.
     """
     channels = load_channels()
     sources = channels.get(channel_name)
@@ -331,7 +331,7 @@ async def handle_stream(request):
     working_url = await get_working_stream(channel_name)
     if not working_url:
         return web.Response(
-            text=f"{channel_name} için şu an aktif çalışan sunucu bulunamadı (Cloudflare veya yayın kapalı).",
+            text=f"{channel_name} için şu an aktif çalışan sunucu bulunamadı.",
             status=503,
         )
     raise web.HTTPFound(working_url)
@@ -374,7 +374,6 @@ async def admin_delete(request):
 
 @basic_auth_required
 async def admin_clear_cache(request):
-    # Cacheler kaldırıldığı için sadece yönlendirme yapılır
     raise web.HTTPFound('/')
 
 
@@ -439,22 +438,12 @@ async def dashboard(request):
             .score-row.best {{ border-left-color: #22c55e; background: #052e16; }}
             .score-row.failed {{ border-left-color: #dc2626; background: #450a0a; opacity: 0.7; }}
             .score-url {{ font-family: monospace; font-size: 11px; color: #cbd5e1; word-break: break-all; }}
-            .score-stats {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 11px; }}
-            .stat {{ background: #334155; padding: 3px 8px; border-radius: 4px; color: #e2e8f0; }}
-            .stat.good {{ background: #166534; color: #bbf7d0; }}
-            .stat.mid {{ background: #854d0e; color: #fef08a; }}
-            .stat.bad {{ background: #991b1b; color: #fecaca; }}
             .score-badge {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px; }}
-            .score-high {{ background: #22c55e; color: #052e16; }}
-            .score-mid {{ background: #f59e0b; color: #431407; }}
-            .score-low {{ background: #6b7280; color: #0f172a; }}
             .score-fail {{ background: #dc2626; color: #ffffff; }}
             .loading {{ color: #94a3b8; font-style: italic; padding: 10px; }}
             .stats-bar {{ display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }}
             .stat-item {{ background: #1e293b; padding: 10px 15px; border-radius: 6px; font-size: 13px; }}
             .stat-item strong {{ color: #38bdf8; font-size: 16px; display: block; }}
-            .health-bar {{ display: inline-block; width: 60px; height: 6px; background: #334155; border-radius: 3px; overflow: hidden; vertical-align: middle; margin-left: 4px; }}
-            .health-bar-fill {{ height: 100%; }}
         </style>
         <script>
             const allChannels = {channels_json_esc};
@@ -494,33 +483,6 @@ async def dashboard(request):
                 }}
             }}
 
-            function scoreBadge(score) {{
-                if (score >= 75) return "score-high";
-                if (score >= 55) return "score-mid";
-                return "score-low";
-            }}
-
-            function scoreLabel(score) {{
-                if (score >= 75) return "ÇOK İYİ ✅";
-                if (score >= 55) return "İYİ 👍";
-                if (score >= 35) return "ORTA ⚠️";
-                return "ZAYIF ⚠️";
-            }}
-
-            function statClass(value, good, mid) {{
-                if (value >= good) return "good";
-                if (value >= mid) return "mid";
-                return "bad";
-            }}
-
-            function healthBar(score) {{
-                let color = "#6b7280";
-                if (score >= 75) color = "#22c55e";
-                else if (score >= 55) color = "#f59e0b";
-                else if (score >= 40) color = "#ef4444";
-                return '<span class="health-bar"><span class="health-bar-fill" style="width:' + score + '%; background:' + color + ';"></span></span>';
-            }}
-
             async function testChannel(name) {{
                 const container = document.getElementById('scores-' + name);
                 container.classList.add('open');
@@ -547,9 +509,7 @@ async def dashboard(request):
                         if (isBest) html += '🏆 ÖNERİLEN ';
                         if (!r.ok) html += '❌ ';
                         html += 'Skor: ' + r.score.toFixed(1) + '</strong>';
-                        if (r.ok) {{
-                            html += '<span class="score-badge ' + scoreBadge(r.score) + '">' + scoreLabel(r.score) + '</span>';
-                        }} else {{
+                        if (!r.ok) {{
                             html += '<span class="score-badge score-fail">' + r.reason + '</span>';
                         }}
                         html += '</div>';
@@ -575,8 +535,8 @@ async def dashboard(request):
     </head>
     <body>
         <div class="container">
-            <h1>IPTV Smart Failover Paneli</h1>
-            <p class="subtitle">Önbellekler kaldırıldı; sunucu limiti/Cloudflare hatası durumunda sıradaki sunucu otomatik denenir.</p>
+            <h1>IPTV Failover Paneli</h1>
+            <p class="subtitle">Cloudflare limitlerine karşı sıralı failover sistemi aktif.</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
@@ -603,7 +563,7 @@ async def dashboard(request):
                         <tr>
                             <th>Kanal Adı</th>
                             <th>Durum</th>
-                            <th>Oynatıcı Linki & Tanımlı Kaynaklar</th>
+                            <th>Oynatıcı Linki & Kaynaklar</th>
                             <th>İşlem</th>
                         </tr>
                     </thead>
@@ -615,7 +575,6 @@ async def dashboard(request):
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
-
         sources_summary = f"{len(sources)} adet sunucu sırayla denenecek"
 
         html += f"""
@@ -644,3 +603,21 @@ async def dashboard(request):
     </html>
     """
     return web.Response(text=html, content_type='text/html')
+
+
+# ─────────────────────────────────────────────
+# Uygulama Başlatma ve Rotalar
+# ─────────────────────────────────────────────
+
+app = web.Application()
+app.router.add_get('/ping', ping)
+app.router.add_get('/play/{channel_name}', handle_stream)
+app.router.add_get('/', dashboard)
+app.router.add_post('/admin/save', admin_save)
+app.router.add_get('/admin/delete/{channel_name}', admin_delete)
+app.router.add_get('/admin/clear-cache', admin_clear_cache)
+app.router.add_get('/admin/test/{channel_name}', admin_test_channel)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    web.run_app(app, host="0.0.0.0", port=port)
