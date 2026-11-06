@@ -1,8 +1,4 @@
 {
-    "test": [
-        "https://bosstvproxy.kkoor.workers.dev/bein1tr",
-        "https://bosstvxproxy.magnitude.workers.dev/bein1tr"
-    ],
     "atv": [
         "https://vavoo1.magnitude.workers.dev/play/atv",
         "https://vavoo2.magnitude2.workers.dev/play/atv",
@@ -248,5 +244,9 @@
         "https://vavoo2.magnitude2.workers.dev/play/akit",
         "https://vavoo3.magnitude3.workers.dev/play/akit",
         "https://vavoo4.ogrenci.workers.dev/play/akit"
+    ],
+    "bein1trbs": [
+        "https://bosstvproxy.kkoor.workers.dev/bein1tr",
+        "https://bosstvxproxy.magnitude.workers.dev/bein1tr"
     ]
 }
