@@ -233,7 +233,7 @@ def analyze_manifest_health(content):
 
 async def check_url(session, url):
     try:
-        content, status, elapsed_time = await fetch_m3u8(session, url, 4.0)
+        content, status, elapsed_time = await fetch_m3u8(session, url, 5.0)
 
         if status != 200:
             return {
@@ -272,7 +272,7 @@ async def check_url(session, url):
     except asyncio.TimeoutError:
         return {
             "url": url, "ok": False, "reason": "Timeout",
-            "score": 0, "speed": 4.0,
+            "score": 0, "speed": 5.0,
         }
     except Exception as e:
         return {
@@ -296,20 +296,26 @@ async def test_all_sources(channel_name):
 
 async def get_working_stream(channel_name):
     """
-    Önbellek kullanılmaz. Tanımlanan sunucular sırasıyla (liste sırasına göre)
-    test edilir. Hangi sunucu yanıt verirse anında o döndürülür. 
-    Böylece Cloudflare limitine takılan sunucu atlanıp sonrakine geçilir.
+    Sunucular liste sırasına göre tek tek ve her biri için tam 5 saniye 
+    beklenerek denenir. Cloudflare sınırına takılan veya hata veren sunucu 
+    anında atlanıp sıradaki sunucuya geçilir.
     """
     channels = load_channels()
     sources = channels.get(channel_name)
     if not sources:
         return None
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=5.0)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for url in sources:
-            res = await check_url(session, url)
-            if res and res["ok"]:
-                return res["url"]
+            try:
+                content, status, elapsed_time = await fetch_m3u8(session, url, timeout_sec=5.0)
+                if status == 200 and content:
+                    health_score, details, is_playable = analyze_manifest_health(content)
+                    if is_playable and health_score >= 30:
+                        return url
+            except Exception:
+                continue
                 
     return None
 
@@ -536,7 +542,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Failover Paneli</h1>
-            <p class="subtitle">Cloudflare limitlerine karşı sıralı failover sistemi aktif.</p>
+            <p class="subtitle">Cloudflare limitlerine karşı 5 saniye zaman aşımıyla sıralı failover sistemi aktif.</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
