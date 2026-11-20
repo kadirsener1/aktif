@@ -21,6 +21,55 @@ DEFAULT_USER_AGENT = os.environ.get(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 )
 DEFAULT_REFERER = os.environ.get("STREAM_REFERER", "")
+STALL_TIMEOUT_SEC = float(os.environ.get("STALL_TIMEOUT_SEC", "12.0"))
+
+# Kaynak bazlı son ilerleme (yeni segment/veri) zamanı
+_stream_progress_state = {}
+
+
+def _progress_key(channel_or_scope, url):
+    return f"{channel_or_scope}::{url}"
+
+
+def is_manifest_stalled(scope_key, url, content):
+    now = time.time()
+    seq_match = re.search(r'#EXT-X-MEDIA-SEQUENCE:\s*(\d+)', content)
+    seq_val = seq_match.group(1) if seq_match else None
+    segments = [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    fingerprint = f"{seq_val or ''}|{'|'.join(segments[-5:])}"
+
+    key = _progress_key(scope_key, url)
+    prev = _stream_progress_state.get(key)
+
+    if not prev or prev.get("fingerprint") != fingerprint:
+        _stream_progress_state[key] = {
+            "fingerprint": fingerprint,
+            "last_progress": now,
+        }
+        return False
+
+    return (now - prev.get("last_progress", now)) >= STALL_TIMEOUT_SEC
+
+
+def mark_manifest_progress(scope_key, url, content):
+    now = time.time()
+    seq_match = re.search(r'#EXT-X-MEDIA-SEQUENCE:\s*(\d+)', content)
+    seq_val = seq_match.group(1) if seq_match else None
+    segments = [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    fingerprint = f"{seq_val or ''}|{'|'.join(segments[-5:])}"
+    key = _progress_key(scope_key, url)
+    _stream_progress_state[key] = {
+        "fingerprint": fingerprint,
+        "last_progress": now,
+    }
 
 
 def build_upstream_headers(target_url):
@@ -371,7 +420,7 @@ async def handle_proxy(request):
     if not target_url.startswith(("http://", "https://")):
         return web.Response(text="Geçersiz kaynak URL.", status=400)
 
-    timeout = aiohttp.ClientTimeout(total=10.0)
+    timeout = aiohttp.ClientTimeout(total=10.0, sock_read=STALL_TIMEOUT_SEC)
     headers = {
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
         'Pragma': 'no-cache',
@@ -400,8 +449,13 @@ async def handle_proxy(request):
                     'Content-Type': content_type,
                 })
                 await stream_resp.prepare(request)
+                last_chunk_time = time.time()
                 async for chunk in resp.content.iter_chunked(65536):
-                    await stream_resp.write(chunk)
+                    if chunk:
+                        last_chunk_time = time.time()
+                        await stream_resp.write(chunk)
+                    elif (time.time() - last_chunk_time) >= STALL_TIMEOUT_SEC:
+                        break
                 await stream_resp.write_eof()
                 return stream_resp
     except Exception as e:
@@ -428,11 +482,12 @@ async def handle_stream(request):
         'Expires': '0',
     }
 
-    timeout = aiohttp.ClientTimeout(total=4.0)
+    timeout = aiohttp.ClientTimeout(total=10.0, sock_read=STALL_TIMEOUT_SEC)
     last_error = "Kaynaklara erişilemedi."
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        for target_url in candidate_urls:
+        for idx, target_url in enumerate(candidate_urls):
+            has_next = idx < len(candidate_urls) - 1
             upstream_headers = build_upstream_headers(target_url)
             try:
                 async with session.get(target_url, headers=upstream_headers) as resp:
@@ -443,6 +498,11 @@ async def handle_stream(request):
                     content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
                     if target_url.lower().endswith('.m3u8') or 'mpegurl' in content_type.lower():
                         text = await resp.text()
+                        if is_manifest_stalled(channel_name, target_url, text):
+                            last_error = f"Yayın {STALL_TIMEOUT_SEC:.0f} sn boyunca ilerlemedi (dondu)"
+                            if has_next:
+                                continue
+                        mark_manifest_progress(channel_name, target_url, text)
                         rewritten = rewrite_m3u8_links(text, str(resp.url))
                         return web.Response(
                             text=rewritten,
@@ -455,8 +515,20 @@ async def handle_stream(request):
                         'Content-Type': content_type,
                     })
                     await stream_resp.prepare(request)
+                    last_chunk_time = time.time()
+                    stalled_mid_stream = False
                     async for chunk in resp.content.iter_chunked(65536):
-                        await stream_resp.write(chunk)
+                        if chunk:
+                            last_chunk_time = time.time()
+                            await stream_resp.write(chunk)
+                        elif (time.time() - last_chunk_time) >= STALL_TIMEOUT_SEC:
+                            stalled_mid_stream = True
+                            break
+
+                    if stalled_mid_stream and has_next:
+                        last_error = "Akış dondu"
+                        continue
+
                     await stream_resp.write_eof()
                     return stream_resp
             except Exception as e:
@@ -707,12 +779,12 @@ async def dashboard(request):
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
-        sources_summary = f"{len(sources)} adet kaynak (sıralı proxy failover)"
+        sources_summary = f"{len(sources)} adet kaynak (donmada sonraki link)"
 
         html += f"""
                         <tr>
                             <td><strong>{safe_name_html}</strong></td>
-                            <td><span class="badge-active">Aktif (Sıralı Proxy)</span></td>
+                            <td><span class="badge-active">Aktif (Donma Korumalı)</span></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
                                 <small style="color: #94a3b8; word-break: break-all;">{sources_summary}</small>
