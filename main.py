@@ -296,9 +296,9 @@ async def test_all_sources(channel_name):
 
 async def get_working_stream(channel_name):
     """
-    Her istekte güncel channels.json anlık okunur. 
+    Her istekte güncel channels.json anlık okunur.
     Listeden silinen sunucular anında devre dışı kalır.
-    Sunucular sırayla 5 saniye zaman aşımıyla denenir.
+    Sunucular sırayla 5 saniye zaman aşımıyla denenir; çalışan ilk link aktif edilir.
     """
     channels = load_channels()
     sources = channels.get(channel_name)
@@ -308,15 +308,18 @@ async def get_working_stream(channel_name):
     timeout = aiohttp.ClientTimeout(total=5.0)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         for url in sources:
+            if not url or not str(url).strip():
+                continue
+            target_url = str(url).strip()
             try:
-                content, status, elapsed_time = await fetch_m3u8(session, url, timeout_sec=5.0)
+                content, status, elapsed_time = await fetch_m3u8(session, target_url, timeout_sec=5.0)
                 if status == 200 and content:
                     health_score, details, is_playable = analyze_manifest_health(content)
                     if is_playable and health_score >= 30:
-                        return url
+                        return target_url
             except Exception:
                 continue
-                
+
     return None
 
 
@@ -340,7 +343,7 @@ async def handle_stream(request):
             text=f"{channel_name} için şu an aktif çalışan sunucu bulunamadı.",
             status=503,
         )
-    
+
     # Tarayıcıların ve oynatıcıların yönlendirmeyi önbelleğe almasını engellemek için Cache-Control eklendi
     raise web.HTTPFound(working_url, headers={
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
