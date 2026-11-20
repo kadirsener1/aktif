@@ -7,6 +7,7 @@ import re
 import time
 import base64
 from html import escape
+from urllib.parse import urljoin, quote, unquote
 
 CONFIG_FILE = "channels.json"
 
@@ -129,7 +130,7 @@ def basic_auth_required(handler):
 
 
 # ─────────────────────────────────────────────
-# M3U8 çekme
+# M3U8 çekme ve Proxy Yardımcıları
 # ─────────────────────────────────────────────
 
 async def fetch_m3u8(session, url, timeout_sec=5.0):
@@ -145,6 +146,30 @@ async def fetch_m3u8(session, url, timeout_sec=5.0):
     except Exception:
         elapsed = time.time() - start
         raise
+
+
+def rewrite_m3u8_links(content, base_url):
+    lines = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            lines.append(line)
+            continue
+
+        if stripped.startswith("#"):
+            # URI="..." parametresi varsa proxy üzerinden yeniden yaz
+            def repl_uri(match):
+                raw_uri = match.group(1)
+                abs_uri = urljoin(base_url, raw_uri)
+                return f'URI="/proxy?u={quote(abs_uri, safe="")}"'
+
+            line = re.sub(r'URI="([^"]+)"', repl_uri, line)
+            lines.append(line)
+        else:
+            abs_url = urljoin(base_url, stripped)
+            lines.append(f'/proxy?u={quote(abs_url, safe="")}')
+
+    return "\n".join(lines) + "\n"
 
 
 # ─────────────────────────────────────────────
@@ -228,7 +253,7 @@ def analyze_manifest_health(content):
 
 
 # ─────────────────────────────────────────────
-# URL testi ve Doğrudan İlk Link Yönlendirmesi
+# URL testi ve Doğrudan İlk Link Seçimi
 # ─────────────────────────────────────────────
 
 async def check_url(session, url):
@@ -319,25 +344,105 @@ async def ping(request):
     return web.Response(text="OK", status=200)
 
 
+async def handle_proxy(request):
+    target_url = unquote(request.query.get('u', '')).strip()
+    if not target_url.startswith(("http://", "https://")):
+        return web.Response(text="Geçersiz kaynak URL.", status=400)
+
+    timeout = aiohttp.ClientTimeout(total=10.0)
+    headers = {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+    }
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(target_url) as resp:
+                if resp.status != 200:
+                    return web.Response(text=f"Kaynak yanıtı: {resp.status}", status=resp.status)
+
+                content_type = resp.headers.get('Content-Type', 'application/octet-stream')
+                if target_url.lower().endswith('.m3u8') or 'mpegurl' in content_type.lower():
+                    text = await resp.text()
+                    rewritten = rewrite_m3u8_links(text, str(resp.url))
+                    return web.Response(
+                        text=rewritten,
+                        content_type='application/vnd.apple.mpegurl',
+                        headers=headers,
+                    )
+
+                stream_resp = web.StreamResponse(status=200, headers={
+                    **headers,
+                    'Content-Type': content_type,
+                })
+                await stream_resp.prepare(request)
+                async for chunk in resp.content.iter_chunked(65536):
+                    await stream_resp.write(chunk)
+                await stream_resp.write_eof()
+                return stream_resp
+    except Exception as e:
+        return web.Response(text=f"Aktarım hatası: {str(e)[:80]}", status=502)
+
+
 async def handle_stream(request):
     channel_name = request.match_info.get('channel_name', '').strip().lower()
     channels = load_channels()
     if channel_name not in channels:
         return web.Response(text="Böyle bir kanal tanımlı değil.", status=404)
 
-    working_url = await get_working_stream(channel_name)
-    if not working_url:
+    sources = channels.get(channel_name) or []
+    candidate_urls = [str(u).strip() for u in sources if u and str(u).strip()]
+    if not candidate_urls:
         return web.Response(
             text=f"{channel_name} için şu an aktif çalışan sunucu bulunamadı.",
             status=503,
         )
 
-    # Tarayıcıların ve oynatıcıların yönlendirmeyi önbelleğe almasını engellemek için Cache-Control eklendi
-    raise web.HTTPFound(working_url, headers={
+    headers = {
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
         'Pragma': 'no-cache',
-        'Expires': '0'
-    })
+        'Expires': '0',
+    }
+
+    timeout = aiohttp.ClientTimeout(total=4.0)
+    last_error = "Kaynaklara erişilemedi."
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for target_url in candidate_urls:
+            try:
+                async with session.get(target_url) as resp:
+                    if resp.status != 200:
+                        last_error = f"Kaynak yanıtı: {resp.status}"
+                        continue
+
+                    content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
+                    if target_url.lower().endswith('.m3u8') or 'mpegurl' in content_type.lower():
+                        text = await resp.text()
+                        rewritten = rewrite_m3u8_links(text, str(resp.url))
+                        return web.Response(
+                            text=rewritten,
+                            content_type='application/vnd.apple.mpegurl',
+                            headers=headers,
+                        )
+
+                    stream_resp = web.StreamResponse(status=200, headers={
+                        **headers,
+                        'Content-Type': content_type,
+                    })
+                    await stream_resp.prepare(request)
+                    async for chunk in resp.content.iter_chunked(65536):
+                        await stream_resp.write(chunk)
+                    await stream_resp.write_eof()
+                    return stream_resp
+            except Exception as e:
+                last_error = f"Yayın aktarım hatası: {str(e)[:80]}"
+                continue
+
+    return web.Response(
+        text=f"{channel_name} için aktif kaynak bulunamadı ({last_error}).",
+        status=503,
+    )
 
 
 @basic_auth_required
@@ -578,12 +683,12 @@ async def dashboard(request):
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
-        sources_summary = f"{len(sources)} adet kaynak (ilk link doğrudan aktif)"
+        sources_summary = f"{len(sources)} adet kaynak (sıralı proxy failover)"
 
         html += f"""
                         <tr>
                             <td><strong>{safe_name_html}</strong></td>
-                            <td><span class="badge-active">Aktif (Doğrudan İlk Link)</span></td>
+                            <td><span class="badge-active">Aktif (Sıralı Proxy)</span></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
                                 <small style="color: #94a3b8; word-break: break-all;">{sources_summary}</small>
@@ -615,6 +720,7 @@ async def dashboard(request):
 app = web.Application()
 app.router.add_get('/ping', ping)
 app.router.add_get('/play/{channel_name}', handle_stream)
+app.router.add_get('/proxy', handle_proxy)
 app.router.add_get('/', dashboard)
 app.router.add_post('/admin/save', admin_save)
 app.router.add_get('/admin/delete/{channel_name}', admin_delete)
