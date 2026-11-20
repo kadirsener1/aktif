@@ -7,7 +7,7 @@ import re
 import time
 import base64
 from html import escape
-from urllib.parse import urljoin, quote, unquote
+from urllib.parse import urljoin, quote, unquote, urlparse
 
 CONFIG_FILE = "channels.json"
 
@@ -15,6 +15,27 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "iptv123")
+
+DEFAULT_USER_AGENT = os.environ.get(
+    "STREAM_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+)
+DEFAULT_REFERER = os.environ.get("STREAM_REFERER", "")
+
+
+def build_upstream_headers(target_url):
+    parsed = urlparse(target_url)
+    origin_referer = f"{parsed.scheme}://{parsed.netloc}/" if parsed.scheme and parsed.netloc else ""
+    referer = DEFAULT_REFERER.strip() or origin_referer
+    headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "*/*",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Connection": "keep-alive",
+    }
+    if referer:
+        headers["Referer"] = referer
+    return headers
 
 
 # ─────────────────────────────────────────────
@@ -136,8 +157,9 @@ def basic_auth_required(handler):
 async def fetch_m3u8(session, url, timeout_sec=5.0):
     start = time.time()
     timeout = aiohttp.ClientTimeout(total=timeout_sec)
+    req_headers = build_upstream_headers(url)
     try:
-        async with session.get(url, timeout=timeout) as response:
+        async with session.get(url, timeout=timeout, headers=req_headers) as response:
             elapsed = time.time() - start
             if response.status != 200:
                 return None, response.status, elapsed
@@ -355,10 +377,11 @@ async def handle_proxy(request):
         'Pragma': 'no-cache',
         'Expires': '0',
     }
+    upstream_headers = build_upstream_headers(target_url)
 
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(target_url) as resp:
+            async with session.get(target_url, headers=upstream_headers) as resp:
                 if resp.status != 200:
                     return web.Response(text=f"Kaynak yanıtı: {resp.status}", status=resp.status)
 
@@ -391,8 +414,9 @@ async def handle_stream(request):
     if channel_name not in channels:
         return web.Response(text="Böyle bir kanal tanımlı değil.", status=404)
 
-    target_url = await get_working_stream(channel_name)
-    if not target_url:
+    sources = channels.get(channel_name) or []
+    candidate_urls = [str(u).strip() for u in sources if u and str(u).strip()]
+    if not candidate_urls:
         return web.Response(
             text=f"{channel_name} için şu an aktif çalışan sunucu bulunamadı.",
             status=503,
@@ -404,34 +428,45 @@ async def handle_stream(request):
         'Expires': '0',
     }
 
-    timeout = aiohttp.ClientTimeout(total=10.0)
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(target_url) as resp:
-                if resp.status != 200:
-                    return web.Response(text=f"Kaynak yanıtı: {resp.status}", status=resp.status)
+    timeout = aiohttp.ClientTimeout(total=4.0)
+    last_error = "Kaynaklara erişilemedi."
 
-                content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
-                if target_url.lower().endswith('.m3u8') or 'mpegurl' in content_type.lower():
-                    text = await resp.text()
-                    rewritten = rewrite_m3u8_links(text, str(resp.url))
-                    return web.Response(
-                        text=rewritten,
-                        content_type='application/vnd.apple.mpegurl',
-                        headers=headers,
-                    )
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for target_url in candidate_urls:
+            upstream_headers = build_upstream_headers(target_url)
+            try:
+                async with session.get(target_url, headers=upstream_headers) as resp:
+                    if resp.status != 200:
+                        last_error = f"Kaynak yanıtı: {resp.status}"
+                        continue
 
-                stream_resp = web.StreamResponse(status=200, headers={
-                    **headers,
-                    'Content-Type': content_type,
-                })
-                await stream_resp.prepare(request)
-                async for chunk in resp.content.iter_chunked(65536):
-                    await stream_resp.write(chunk)
-                await stream_resp.write_eof()
-                return stream_resp
-    except Exception as e:
-        return web.Response(text=f"Yayın aktarım hatası: {str(e)[:80]}", status=502)
+                    content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
+                    if target_url.lower().endswith('.m3u8') or 'mpegurl' in content_type.lower():
+                        text = await resp.text()
+                        rewritten = rewrite_m3u8_links(text, str(resp.url))
+                        return web.Response(
+                            text=rewritten,
+                            content_type='application/vnd.apple.mpegurl',
+                            headers=headers,
+                        )
+
+                    stream_resp = web.StreamResponse(status=200, headers={
+                        **headers,
+                        'Content-Type': content_type,
+                    })
+                    await stream_resp.prepare(request)
+                    async for chunk in resp.content.iter_chunked(65536):
+                        await stream_resp.write(chunk)
+                    await stream_resp.write_eof()
+                    return stream_resp
+            except Exception as e:
+                last_error = f"Yayın aktarım hatası: {str(e)[:80]}"
+                continue
+
+    return web.Response(
+        text=f"{channel_name} için aktif kaynak bulunamadı ({last_error}).",
+        status=503,
+    )
 
 
 @basic_auth_required
@@ -672,12 +707,12 @@ async def dashboard(request):
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
-        sources_summary = f"{len(sources)} adet kaynak (ilk link doğrudan aktif)"
+        sources_summary = f"{len(sources)} adet kaynak (sıralı proxy failover)"
 
         html += f"""
                         <tr>
                             <td><strong>{safe_name_html}</strong></td>
-                            <td><span class="badge-active">Aktif (Doğrudan İlk Link)</span></td>
+                            <td><span class="badge-active">Aktif (Sıralı Proxy)</span></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
                                 <small style="color: #94a3b8; word-break: break-all;">{sources_summary}</small>
