@@ -228,7 +228,7 @@ def analyze_manifest_health(content):
 
 
 # ─────────────────────────────────────────────
-# URL testi ve Sıralı (Failover) Kontrolü
+# URL testi ve Doğrudan İlk Link Yönlendirmesi
 # ─────────────────────────────────────────────
 
 async def check_url(session, url):
@@ -297,28 +297,16 @@ async def test_all_sources(channel_name):
 async def get_working_stream(channel_name):
     """
     Her istekte güncel channels.json anlık okunur.
-    Listeden silinen sunucular anında devre dışı kalır.
-    Sunucular sırayla 5 saniye zaman aşımıyla denenir; çalışan ilk link aktif edilir.
+    Hiç test yapmadan listedeki ilk geçerli link doğrudan döndürülür.
     """
     channels = load_channels()
     sources = channels.get(channel_name)
     if not sources:
         return None
 
-    timeout = aiohttp.ClientTimeout(total=5.0)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        for url in sources:
-            if not url or not str(url).strip():
-                continue
-            target_url = str(url).strip()
-            try:
-                content, status, elapsed_time = await fetch_m3u8(session, target_url, timeout_sec=5.0)
-                if status == 200 and content:
-                    health_score, details, is_playable = analyze_manifest_health(content)
-                    if is_playable and health_score >= 30:
-                        return target_url
-            except Exception:
-                continue
+    for url in sources:
+        if url and str(url).strip():
+            return str(url).strip()
 
     return None
 
@@ -551,7 +539,7 @@ async def dashboard(request):
     <body>
         <div class="container">
             <h1>IPTV Failover Paneli</h1>
-            <p class="subtitle">Anlık güncellenen sıralı failover sistemi ve no-cache koruması aktif.</p>
+            <p class="subtitle">Anlık güncellenen doğrudan yönlendirme sistemi ve no-cache koruması aktif.</p>
 
             <div class="stats-bar">
                 <div class="stat-item"><strong>{len(channels)}</strong>Tanımlı Kanal</div>
@@ -590,12 +578,12 @@ async def dashboard(request):
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
-        sources_summary = f"{len(sources)} adet sunucu sırayla denenecek"
+        sources_summary = f"{len(sources)} adet kaynak (ilk link doğrudan aktif)"
 
         html += f"""
                         <tr>
                             <td><strong>{safe_name_html}</strong></td>
-                            <td><span class="badge-active">Aktif (Sıralı Failover)</span></td>
+                            <td><span class="badge-active">Aktif (Doğrudan İlk Link)</span></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
                                 <small style="color: #94a3b8; word-break: break-all;">{sources_summary}</small>
