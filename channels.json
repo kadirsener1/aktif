@@ -286,6 +286,6 @@
         "https://avva.magnitude5.workers.dev/bein5tr"
     ],
     "test": [
-        "https://avvaupdate.com/live/bein1/playlist.m3u8?o=1%26e=1795208517%26tk=0669244abe0524b20f2ed5eecb072acb"
+        "https://avva.magnitude.workers.dev/?url=https://avvaupdate.com/live/bein1/playlist.m3u8?o=1%26e=1795208517%26tk=0669244abe0524b20f2ed5eecb072acb"
     ]
 }
