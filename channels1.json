@@ -2,6 +2,18 @@
     "tvnow1": [
         " https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_1-TV.m3u8",
     ],
+    "tvnow2": [
+        " https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_2-TV.m3u8",
+    ],
+    "tvnow3": [
+        " https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_3-TV.m3u8",
+    ],
+    "tvnow4": [
+        " https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_4-TV.m3u8",
+    ],
+    "tvnow5": [
+        " https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_5-TV.m3u8",
+    ],
     "atv": [
         "https://vavoo.to/vavoo-iptv/play/4559304258567c5d6cd2a",
         "https://vavoo.to/vavoo-iptv/play/2325261286cc81b01cf95d",
