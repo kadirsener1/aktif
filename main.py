@@ -391,9 +391,8 @@ async def handle_stream(request):
     if channel_name not in channels:
         return web.Response(text="Böyle bir kanal tanımlı değil.", status=404)
 
-    sources = channels.get(channel_name) or []
-    candidate_urls = [str(u).strip() for u in sources if u and str(u).strip()]
-    if not candidate_urls:
+    target_url = await get_working_stream(channel_name)
+    if not target_url:
         return web.Response(
             text=f"{channel_name} için şu an aktif çalışan sunucu bulunamadı.",
             status=503,
@@ -405,44 +404,34 @@ async def handle_stream(request):
         'Expires': '0',
     }
 
-    timeout = aiohttp.ClientTimeout(total=4.0)
-    last_error = "Kaynaklara erişilemedi."
+    timeout = aiohttp.ClientTimeout(total=10.0)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(target_url) as resp:
+                if resp.status != 200:
+                    return web.Response(text=f"Kaynak yanıtı: {resp.status}", status=resp.status)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        for target_url in candidate_urls:
-            try:
-                async with session.get(target_url) as resp:
-                    if resp.status != 200:
-                        last_error = f"Kaynak yanıtı: {resp.status}"
-                        continue
+                content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
+                if target_url.lower().endswith('.m3u8') or 'mpegurl' in content_type.lower():
+                    text = await resp.text()
+                    rewritten = rewrite_m3u8_links(text, str(resp.url))
+                    return web.Response(
+                        text=rewritten,
+                        content_type='application/vnd.apple.mpegurl',
+                        headers=headers,
+                    )
 
-                    content_type = resp.headers.get('Content-Type', 'application/vnd.apple.mpegurl')
-                    if target_url.lower().endswith('.m3u8') or 'mpegurl' in content_type.lower():
-                        text = await resp.text()
-                        rewritten = rewrite_m3u8_links(text, str(resp.url))
-                        return web.Response(
-                            text=rewritten,
-                            content_type='application/vnd.apple.mpegurl',
-                            headers=headers,
-                        )
-
-                    stream_resp = web.StreamResponse(status=200, headers={
-                        **headers,
-                        'Content-Type': content_type,
-                    })
-                    await stream_resp.prepare(request)
-                    async for chunk in resp.content.iter_chunked(65536):
-                        await stream_resp.write(chunk)
-                    await stream_resp.write_eof()
-                    return stream_resp
-            except Exception as e:
-                last_error = f"Yayın aktarım hatası: {str(e)[:80]}"
-                continue
-
-    return web.Response(
-        text=f"{channel_name} için aktif kaynak bulunamadı ({last_error}).",
-        status=503,
-    )
+                stream_resp = web.StreamResponse(status=200, headers={
+                    **headers,
+                    'Content-Type': content_type,
+                })
+                await stream_resp.prepare(request)
+                async for chunk in resp.content.iter_chunked(65536):
+                    await stream_resp.write(chunk)
+                await stream_resp.write_eof()
+                return stream_resp
+    except Exception as e:
+        return web.Response(text=f"Yayın aktarım hatası: {str(e)[:80]}", status=502)
 
 
 @basic_auth_required
@@ -683,12 +672,12 @@ async def dashboard(request):
         safe_name_js = json.dumps(name)
         play_link = f"/play/{name}"
         delete_link = f"/admin/delete/{name}"
-        sources_summary = f"{len(sources)} adet kaynak (sıralı proxy failover)"
+        sources_summary = f"{len(sources)} adet kaynak (ilk link doğrudan aktif)"
 
         html += f"""
                         <tr>
                             <td><strong>{safe_name_html}</strong></td>
-                            <td><span class="badge-active">Aktif (Sıralı Proxy)</span></td>
+                            <td><span class="badge-active">Aktif (Doğrudan İlk Link)</span></td>
                             <td>
                                 <a href="{escape(play_link)}" target="_blank">{escape(play_link)}</a><br>
                                 <small style="color: #94a3b8; word-break: break-all;">{sources_summary}</small>
