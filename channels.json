@@ -1,6 +1,6 @@
 {
     "tvnow1": [
-        " https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_1-TV.m3u8"
+        "https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_1-TV.m3u8"
     ],
     "tvnow2": [
         " https://raw.githubusercontent.com/kadirsener1/livetv/refs/heads/main/tv247tr/BEIN_SPORTS_2-TV.m3u8"
@@ -268,21 +268,21 @@
     "bein2tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein2tr",
         "https://bosstvxproxy.magnitude.workers.dev/bein2tr",
-         "https://avva.magnitude5.workers.dev/bein2tr"
+        "https://avva.magnitude5.workers.dev/bein2tr"
     ],
     "bein3tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein3tr",
         "https://bosstvxproxy.magnitude.workers.dev/bein3tr",
-         "https://avva.magnitude5.workers.dev/bein3tr"
+        "https://avva.magnitude5.workers.dev/bein3tr"
     ],
     "bein4tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein4tr",
         "https://bosstvxproxy.magnitude.workers.dev/bein4tr",
-         "https://avva.magnitude5.workers.dev/bein4tr"
+        "https://avva.magnitude5.workers.dev/bein4tr"
     ],
     "bein5tr": [
         "https://bosstvproxy.kkoor.workers.dev/bein5tr",
         "https://bosstvxproxy.magnitude.workers.dev/bein5tr",
-         "https://avva.magnitude5.workers.dev/bein5tr"
+        "https://avva.magnitude5.workers.dev/bein5tr"
     ]
 }
