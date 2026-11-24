@@ -1,15 +1,8 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "destination": "api/index.py"
+      "source": "/play/:channel",
+      "destination": "/api/play?channel=:channel"
     }
   ]
 }
