@@ -1,11 +1,16 @@
-from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
-import urllib.request
 import json
 import time
+from typing import Optional
+import requests
+from fastapi import FastAPI, Response
+from fastapi.responses import RedirectResponse, PlainTextResponse
 
-CHANNELS_URL = "https://raw.githubusercontent.com/kadirsener1/aktif/refs/heads/main/channels.json"
-CACHE_TTL = 60  # Saniye cinsinden JSON önbellek süresi
+CHANNELS_URL = (
+    "https://raw.githubusercontent.com/kadirsener1/aktif/refs/heads/main/channels.json"
+)
+CACHE_TTL = 60
+
+app = FastAPI()
 
 _cache = {
     "data": None,
@@ -18,82 +23,62 @@ def get_channels() -> dict:
     if _cache["data"] is not None and now < _cache["expires_at"]:
         return _cache["data"]
 
-    req = urllib.request.Request(
+    resp = requests.get(
         CHANNELS_URL,
         headers={
             "User-Agent": "Mozilla/5.0",
             "Cache-Control": "no-cache",
         },
+        timeout=4.0,
     )
-    with urllib.request.urlopen(req, timeout=4.0) as resp:
-        raw = resp.read().decode("utf-8")
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            _cache["data"] = parsed
-            _cache["expires_at"] = now + CACHE_TTL
-            return parsed
+    resp.raise_for_status()
+    parsed = resp.json()
+    if isinstance(parsed, dict):
+        _cache["data"] = parsed
+        _cache["expires_at"] = now + CACHE_TTL
+        return parsed
 
     return _cache["data"] or {}
 
 
 def is_stream_working(url: str, timeout: float = 2.5) -> bool:
-    req = urllib.request.Request(
-        url,
-        method="GET",
-        headers={
-            "User-Agent": "VLC/3.0.18 LibVLC/3.0.18",
-            "Range": "bytes=0-1",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status in (200, 206)
+        resp = requests.get(
+            url,
+            headers={
+                "User-Agent": "VLC/3.0.18 LibVLC/3.0.18",
+                "Range": "bytes=0-1",
+            },
+            stream=True,
+            allow_redirects=True,
+            timeout=timeout,
+            verify=False,
+        )
+        ok = resp.status_code in (200, 206)
+        resp.close()
+        return ok
     except Exception:
         return False
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
-        channel = qs.get("channel", [None])[0]
+@app.get("/play/{channel}")
+def play_channel(channel: str, response: Response):
+    try:
+        channels = get_channels()
+    except Exception as exc:
+        return PlainTextResponse(f"channels.json okunamadi: {exc}", status_code=502)
 
-        if not channel and parsed.path.startswith("/play/"):
-            channel = parsed.path.split("/play/", 1)[1].strip("/")
+    if not channel or channel not in channels:
+        return PlainTextResponse("Kanal bulunamadi.", status_code=404)
 
-        try:
-            channels = get_channels()
-        except Exception:
-            self.send_response(502)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write("channels.json okunamadi.".encode("utf-8"))
-            return
+    urls = channels[channel]
+    if not isinstance(urls, list) or not urls:
+        return PlainTextResponse("Kanal icin link tanimli degil.", status_code=503)
 
-        if not channel or channel not in channels:
-            self.send_response(404)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write("Kanal bulunamadi.".encode("utf-8"))
-            return
+    for url in urls:
+        if isinstance(url, str) and url.strip() and is_stream_working(url.strip()):
+            res = RedirectResponse(url=url.strip(), status_code=302)
+            res.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            return res
 
-        urls = channels[channel]
-        if not isinstance(urls, list) or not urls:
-            self.send_response(503)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write("Kanal icin link tanimli degil.".encode("utf-8"))
-            return
-
-        for url in urls:
-            if is_stream_working(url):
-                self.send_response(302)
-                self.send_header("Location", url)
-                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-                self.end_headers()
-                return
-
-        self.send_response(503)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write("Calisan yayin linki bulunamadi.".encode("utf-8"))
+    return PlainTextResponse("Calisan yayin linki bulunamadi.", status_code=503)
