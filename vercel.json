@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/play/(.*)",
-      "destination": "/api/play"
+      "source": "/play/:channel",
+      "destination": "/api/play?channel=:channel"
     }
   ]
 }
